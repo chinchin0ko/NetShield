@@ -38,8 +38,10 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 ## Dispositivos y alertas
 
-`POST /devices` recibe `name` y una clave pública WireGuard de 32 bytes en base64. `GET /devices` lista solo los registros del usuario y `DELETE /devices/{id}` elimina solo un registro propio. El registro **no crea, elimina ni activa peers WireGuard**; la clave privada debe permanecer en el dispositivo.
+`POST /devices` recibe `name` y una clave pública WireGuard de 32 bytes en base64. `GET /devices` lista solo los registros del usuario y `DELETE /devices/{id}` elimina solo un registro propio. Una solicitud repetida con la misma clave y usuario devuelve el registro existente; una clave registrada por otra cuenta se rechaza. El registro **no crea, elimina ni activa peers WireGuard**; la clave privada debe permanecer en el dispositivo.
 
 `python -m app.import_alerts < eventos-eve.jsonl` importa registros JSONL previamente obtenidos de una fuente confiable. Los eventos que no son alertas se omiten y las alertas duplicadas se identifican mediante un hash del evento canónico. El proceso reporta totales y devuelve código 1 si encuentra líneas inválidas. La base puede contener parcialmente los eventos válidos si otra línea falla; los eventos repetidos no vuelven a insertarse. No lee en vivo ni configura el transporte desde el VPS; no se exponen alertas por API hasta definir acceso y atribución seguros.
 
 Las migraciones e importaciones modifican datos: primero pruébelas en una base de desarrollo. Los tests incluyen repositorios simulados; no sustituyen pruebas de integración con PostgreSQL.
+
+El [plan de conexión segura](docs/plan-conexion-segura.md) describe las fases, los límites actuales y las intervenciones manuales.

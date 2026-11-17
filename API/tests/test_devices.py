@@ -58,3 +58,25 @@ def test_device_access_is_limited_to_owner(monkeypatch):
         assert client.get('/devices').status_code == 401
     finally:
         app.dependency_overrides.clear()
+
+
+def test_postgres_registration_conflict_is_private(monkeypatch):
+    from app.application.devices import DeviceAlreadyExists
+    from app.infrastructure import devices as adapter
+
+    class Connection:
+        def __init__(self, row): self.row = row
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def execute(self, query, params):
+            assert 'WHERE devices.user_id = EXCLUDED.user_id' in query
+            return self
+        def fetchone(self): return self.row
+
+    key = base64.b64encode(b'x' * 32).decode()
+    row = (7, 1, 'phone', key, datetime.now(timezone.utc))
+    monkeypatch.setattr(adapter, 'database', lambda: Connection(row))
+    assert adapter.PostgresDevices().create(1, 'phone', key).id == 7
+    monkeypatch.setattr(adapter, 'database', lambda: Connection(None))
+    with pytest.raises(DeviceAlreadyExists):
+        adapter.PostgresDevices().create(2, 'phone', key)

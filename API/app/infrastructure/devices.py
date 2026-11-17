@@ -11,11 +11,15 @@ class PostgresDevices:
             with database() as conn:
                 row = conn.execute(
                     'INSERT INTO devices (user_id, name, public_key) VALUES (%s, %s, %s) '
+                    'ON CONFLICT (public_key) DO UPDATE SET public_key = devices.public_key '
+                    'WHERE devices.user_id = EXCLUDED.user_id '
                     'RETURNING id, user_id, name, public_key, created_at',
                     (user_id, name, public_key),
                 ).fetchone()
         except UniqueViolation:
             raise DeviceAlreadyExists from None
+        if row is None:
+            raise DeviceAlreadyExists
         return Device(*row)
 
     def list_for_user(self, user_id):
