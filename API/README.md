@@ -45,3 +45,9 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 Las migraciones e importaciones modifican datos: primero pruébelas en una base de desarrollo. Los tests incluyen repositorios simulados; no sustituyen pruebas de integración con PostgreSQL.
 
 El [plan de conexión segura](docs/plan-conexion-segura.md) describe las fases, los límites actuales y las intervenciones manuales.
+
+## Prueba de integración aislada
+
+Con Docker funcionando y las dependencias de desarrollo instaladas, ejecutar `./scripts/test-integration.sh`. Crea un PostgreSQL 16 temporal con TLS y datos en memoria, aplica las migraciones en un esquema de prueba y ejecuta el flujo de autenticación y dispositivos. El script elimina el contenedor y el certificado al terminar. No use credenciales ni datos reales.
+
+La prueba también puede ejecutarse con `NETSHIELD_TEST_DSN` apuntando a una base de laboratorio llamada `netshield_lab` y un certificado confiable. Crea y elimina un esquema temporal; nunca debe apuntarse a producción.
