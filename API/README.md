@@ -57,3 +57,9 @@ La prueba también puede ejecutarse con `NETSHIELD_TEST_DSN` apuntando a una bas
 En Linux con `wg`, `ip`, `unshare`, soporte de WireGuard y espacios de usuario/red habilitados, active el entorno virtual y ejecute `./scripts/test-wireguard-lab.sh`. La prueba crea una interfaz `wg-lab0` dentro de un espacio de red temporal y comprueba alta, reintento y revocación con el WireGuard real del kernel. Al salir, desaparece el espacio de red. No usa claves, interfaces ni peers de producción y no necesita `sudo` cuando el sistema permite estos espacios.
 
 El adaptador `WireGuardLab` es **experimental y exclusivo del laboratorio**. No administra direcciones de forma transaccional, no persiste peers, no reconcilia con `wg-easy` ni conecta con las rutas HTTP; no debe usarse en producción. El script `./scripts/test-wireguard-traffic.sh` crea dos espacios de red efímeros, establece un túnel entre ellos, verifica el handshake y el tráfico y comprueba que la revocación interrumpe la comunicación. Esta prueba no demuestra ausencia de fugas en un móvil.
+
+El [plan de pruebas de laboratorio](docs/pruebas-laboratorio.md) indica los comandos, su alcance y los criterios pendientes para una prueba de punta a punta.
+
+Para la prueba conjunta experimental de PostgreSQL y WireGuard, consulta [pruebas de laboratorio](docs/pruebas-laboratorio.md). Sus componentes `lab/` no se cargan en la aplicación de producción.
+
+La [arquitectura propuesta para OCI](docs/arquitectura-instancias.md) describe la conectividad y los requisitos para reconstruir y desplegar.
