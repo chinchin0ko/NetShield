@@ -51,3 +51,9 @@ El [plan de conexión segura](docs/plan-conexion-segura.md) describe las fases, 
 Con Docker funcionando y las dependencias de desarrollo instaladas, ejecutar `./scripts/test-integration.sh`. Crea un PostgreSQL 16 temporal con TLS y datos en memoria, aplica las migraciones en un esquema de prueba y ejecuta el flujo de autenticación y dispositivos. El script elimina el contenedor y el certificado al terminar. No use credenciales ni datos reales.
 
 La prueba también puede ejecutarse con `NETSHIELD_TEST_DSN` apuntando a una base de laboratorio llamada `netshield_lab` y un certificado confiable. Crea y elimina un esquema temporal; nunca debe apuntarse a producción.
+
+## Laboratorio WireGuard aislado (Linux)
+
+En Linux con `wg`, `ip`, `unshare`, soporte de WireGuard y espacios de usuario/red habilitados, active el entorno virtual y ejecute `./scripts/test-wireguard-lab.sh`. La prueba crea una interfaz `wg-lab0` dentro de un espacio de red temporal y comprueba alta, reintento y revocación con el WireGuard real del kernel. Al salir, desaparece el espacio de red. No usa claves, interfaces ni peers de producción y no necesita `sudo` cuando el sistema permite estos espacios.
+
+El adaptador `WireGuardLab` es **experimental y exclusivo del laboratorio**. No administra direcciones de forma transaccional, no persiste peers, no reconcilia con `wg-easy` ni conecta con las rutas HTTP; no debe usarse en producción. El script `./scripts/test-wireguard-traffic.sh` crea dos espacios de red efímeros, establece un túnel entre ellos, verifica el handshake y el tráfico y comprueba que la revocación interrumpe la comunicación. Esta prueba no demuestra ausencia de fugas en un móvil.

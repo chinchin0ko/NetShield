@@ -31,3 +31,7 @@ La versión instalada de `wg-easy:13` crea la clave privada y la precompartida e
 - El mecanismo dos veces al mes en la VM de PostgreSQL solo consulta actualizaciones; no las instala ni avisa automáticamente. Una política de parches debe cubrir también las demás instancias.
 - `POST /devices` registra una clave y no crea un peer; `DELETE` solo borra el registro. No usar estas operaciones para afirmar que se concedió o revocó acceso VPN.
 - Los certificados y secretos deben gestionarse fuera del repositorio, con rotación y pruebas. El certificado de PostgreSQL configurado es propio y necesita distribución confiable y rotación.
+
+## Avance del laboratorio
+
+Se agregó un adaptador experimental limitado a interfaces `wg-lab*` y una prueba en un espacio de red efímero. La prueba utiliza WireGuard del kernel para agregar la clave pública de un peer, repetir el alta y retirarlo. Otra prueba aislada conecta dos peers, verifica handshake y tráfico, y confirma que la revocación interrumpe la comunicación. No conecta con la API ni con `wg-easy` y no implementa persistencia, asignación exclusiva de direcciones o reconciliación. Deben resolverse esas funciones antes de su uso fuera del laboratorio.
