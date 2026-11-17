@@ -63,3 +63,7 @@ El [plan de pruebas de laboratorio](docs/pruebas-laboratorio.md) indica los coma
 Para la prueba conjunta experimental de PostgreSQL y WireGuard, consulta [pruebas de laboratorio](docs/pruebas-laboratorio.md). Sus componentes `lab/` no se cargan en la aplicación de producción.
 
 La [arquitectura propuesta para OCI](docs/arquitectura-instancias.md) describe la conectividad y los requisitos para reconstruir y desplegar.
+
+## Simulación remota de conexión
+
+En el entorno de desarrollo de NetShield, `./scripts/simular-one-click.sh` usa SSH para ejecutar pruebas con datos temporales en la instancia API y la base `netshield_lab`. Simula el controlador de peers: **no conecta la VPN ni enruta tráfico del equipo**. Depende de la configuración privada instalada en esas instancias. Se pueden ajustar `NETSHIELD_SSH_KEY`, `NETSHIELD_SSH_JUMP` y `NETSHIELD_SSH_API`.
