@@ -1,8 +1,7 @@
 """Create an initial user interactively; do not pass passwords on the command line."""
 import getpass
 
-from argon2 import PasswordHasher
-from app.main import database
+from app.composition import get_auth_service
 
 
 def main():
@@ -12,8 +11,7 @@ def main():
     password = getpass.getpass("Contraseña (mínimo 12 caracteres): ")
     if len(password) < 12 or password != getpass.getpass("Confirma la contraseña: "):
         raise SystemExit("Contraseña corta o confirmación incorrecta")
-    with database() as conn:
-        conn.execute("INSERT INTO users (username, password_hash) VALUES (%s, %s)", (username, PasswordHasher().hash(password)))
+    get_auth_service().create_user(username, password)
     print("Usuario creado")
 
 

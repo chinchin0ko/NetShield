@@ -4,10 +4,17 @@ Primera versión del backend en FastAPI para una instancia privada. Incluye aute
 
 ## Contenido
 
-- `app/main.py`: endpoints de salud, inicio de sesión y consulta del usuario autenticado.
+- `app/domain/`: entidades y reglas centrales del dominio.
+- `app/application/`: casos de uso y puertos (interfaces) requeridos por la aplicación.
+- `app/infrastructure/`: adaptadores de PostgreSQL y seguridad (Argon2 y JWT).
+- `app/interfaces/`: adaptador HTTP con endpoints FastAPI.
+- `app/composition.py`: conecta los puertos con sus adaptadores.
+- `app/main.py`: punto de entrada de FastAPI.
 - `app/create_user.py`: creación interactiva del primer usuario.
 - `migrations/001_users.sql`: esquema inicial de usuarios.
 - `tests/`: pruebas de autenticación y estado con base simulada.
+
+Las dependencias apuntan hacia el centro: HTTP llama a los casos de uso; estos dependen de puertos y entidades, no de PostgreSQL ni de FastAPI. La composición conecta cada puerto con su implementación. Es una versión ligera de arquitectura hexagonal, con un flujo secuencial fácil de seguir.
 
 ## Preparación local
 
