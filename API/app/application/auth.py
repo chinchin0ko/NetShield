@@ -18,11 +18,14 @@ class AuthService:
             raise AuthenticationError
         return self.tokens.create(user.id)
 
-    def current_user(self, token: str) -> str:
+    def current_identity(self, token: str):
         user = self.users.by_id(self.tokens.user_id(token))
         if not user or not user.is_active:
             raise AuthenticationError
-        return user.username
+        return user
+
+    def current_user(self, token: str) -> str:
+        return self.current_identity(token).username
 
     def create_user(self, username: str, password: str) -> None:
         self.users.create(username, self.passwords.hash(password))
