@@ -44,7 +44,7 @@ class _ShieldHomeState extends State<ShieldHome> {
   String? error, notice, token, signedInAs;
 
   @override
-  void dispose() { monitor?.cancel(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
+  void dispose() { monitor?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
 
   Future<void> signIn() async {
     if (loading) return;

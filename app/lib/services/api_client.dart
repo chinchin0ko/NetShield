@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
+import 'dev_tunnel.dart';
 
 class ApiException implements Exception {
   const ApiException(this.message);
@@ -7,20 +9,39 @@ class ApiException implements Exception {
 }
 
 class ApiClient {
-  ApiClient({String? baseUrl})
+  ApiClient({String? baseUrl, DevTunnel? tunnel})
     : baseUrl = Uri.parse(baseUrl ?? const String.fromEnvironment(
         'NETSHIELD_API_URL',
         defaultValue: 'http://127.0.0.1:18000',
-      ));
+      )),
+      _tunnel = tunnel ?? (baseUrl == null && const String.fromEnvironment('NETSHIELD_API_URL', defaultValue: 'http://127.0.0.1:18000') == 'http://127.0.0.1:18000' ? DevTunnel() : null);
 
   final Uri baseUrl;
+  final DevTunnel? _tunnel;
+
+  Future<Uri> _url(String path) async {
+    try {
+      return (_tunnel == null ? baseUrl : await _tunnel.ensureStarted()).resolve(path);
+    } on DevTunnelException catch (e) {
+      throw ApiException(e.message);
+    } on TimeoutException {
+      throw const ApiException('El acceso a la API tardó demasiado. Comprueba tu conexión a Internet.');
+    }
+  }
+
+  void close() => _tunnel?.close();
+
+  ApiException _connectionError() {
+    _tunnel?.reset();
+    return const ApiException('No se pudo conectar con la API. Comprueba tu conexión e inténtalo otra vez.');
+  }
 
   Future<dynamic> _authorized(String token, String method, String path) async {
     final isLoopback = baseUrl.host == '127.0.0.1' || baseUrl.host == 'localhost' || baseUrl.host == '::1';
     if (baseUrl.scheme != 'https' && !(baseUrl.scheme == 'http' && isLoopback)) throw const ApiException('La dirección de la API debe usar HTTPS.');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
-      final request = await client.openUrl(method, baseUrl.resolve(path));
+      final request = await client.openUrl(method, await _url(path));
       request.followRedirects = false;
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       final response = await request.close().timeout(const Duration(seconds: 25));
@@ -29,7 +50,9 @@ class ApiClient {
       if (response.statusCode != 200 && response.statusCode != 204) throw const ApiException('No se pudo administrar el dispositivo.');
       return body.isEmpty ? null : jsonDecode(body);
     } on SocketException {
-      throw const ApiException('No se pudo conectar con la API. Comprueba el túnel de desarrollo.');
+      throw _connectionError();
+    } on TimeoutException {
+      throw _connectionError();
     } finally {
       client.close(force: true);
     }
@@ -53,7 +76,7 @@ class ApiClient {
     }
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
-      final request = await client.postUrl(baseUrl.resolve('/vpn/config'));
+      final request = await client.postUrl(await _url('/vpn/config'));
       request.followRedirects = false;
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
@@ -67,7 +90,9 @@ class ApiClient {
       if (data is! Map || data['config'] is! String) throw const ApiException('La configuración VPN es inválida.');
       return data['config'] as String;
     } on SocketException {
-      throw const ApiException('No se pudo conectar con la API. Comprueba el túnel de desarrollo.');
+      throw _connectionError();
+    } on TimeoutException {
+      throw _connectionError();
     } finally {
       client.close(force: true);
     }
@@ -80,7 +105,7 @@ class ApiClient {
     }
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
-      final request = await client.postUrl(baseUrl.resolve('/auth/register'));
+      final request = await client.postUrl(await _url('/auth/register'));
       request.headers.contentType = ContentType.json;
       request.add(utf8.encode(jsonEncode({'username': username, 'password': password})));
       final response = await request.close().timeout(const Duration(seconds: 10));
@@ -89,7 +114,9 @@ class ApiClient {
       if (response.statusCode == 404) throw const ApiException('El registro no está habilitado en el servidor.');
       if (response.statusCode != 201) throw const ApiException('No se pudo crear la cuenta.');
     } on SocketException {
-      throw const ApiException('No se pudo conectar con la API. Comprueba el túnel de desarrollo.');
+      throw _connectionError();
+    } on TimeoutException {
+      throw _connectionError();
     } finally {
       client.close(force: true);
     }
@@ -102,7 +129,7 @@ class ApiClient {
     }
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
-      final request = await client.postUrl(baseUrl.resolve('/auth/token'));
+      final request = await client.postUrl(await _url('/auth/token'));
       request.headers.contentType = ContentType.json;
       request.add(utf8.encode(jsonEncode({'username': username, 'password': password})));
       final response = await request.close().timeout(const Duration(seconds: 10));
@@ -119,7 +146,9 @@ class ApiClient {
       }
       return decoded['access_token'] as String;
     } on SocketException {
-      throw const ApiException('No se pudo conectar con la API. Comprueba el túnel de desarrollo.');
+      throw _connectionError();
+    } on TimeoutException {
+      throw _connectionError();
     } on HttpException {
       throw const ApiException('No se pudo completar la conexión con la API.');
     } on FormatException {

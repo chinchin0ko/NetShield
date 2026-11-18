@@ -4,13 +4,13 @@ Cliente de desarrollo en Flutter para Linux. Incluye registro, inicio de sesión
 
 ## Probar en el equipo de desarrollo
 
-En una terminal, abrir y mantener activo el túnel SSH de la API:
+En esta máquina abre **NetShield VPN** desde el menú de aplicaciones. La aplicación abre automáticamente su propio acceso SSH a la API al iniciar sesión o registrarse y lo cierra al salir. No hace falta abrir una terminal para crear el túnel. Requiere `ssh`, `python3`, la clave de desarrollo en `~/Projects/SSH/UPVPN/ssh-key-2026-09-17.key` y las huellas SSH previamente verificadas en `~/.ssh/known_hosts`. No se incluye ni distribuye la clave privada.
 
-```bash
-~/Projects/NetShield/API/scripts/abrir-api-dev.sh
-```
+Para instalar el acceso directo en otra copia del proyecto, compila la aplicación y ejecuta `./scripts/install-desktop.sh` desde `app/`.
 
-En otra terminal, consultar la contraseña del usuario de prueba `demo`:
+Para consultar la contraseña de la cuenta de prueba una vez, puedes usar una terminal:
+
+El usuario de prueba es `demo`:
 
 ```bash
 ~/Projects/NetShield/API/scripts/abrir-api-dev.sh --password
@@ -29,7 +29,7 @@ flutter pub get
 flutter run -d linux
 ```
 
-Por defecto se conecta a `http://127.0.0.1:18000` a través del túnel. Para otra API puede configurarse `--dart-define=NETSHIELD_API_URL=https://...`; HTTP solo se permite en localhost. El token se conserva únicamente en memoria durante la sesión.
+Por defecto crea un túnel privado de desarrollo en un puerto local temporal. Para otra API puede configurarse `--dart-define=NETSHIELD_API_URL=https://...`; HTTP solo se permite en localhost. El token se conserva únicamente en memoria durante la sesión.
 
 En la pantalla principal, pulsa **Conectar**. La aplicación importa un perfil WireGuard en NetworkManager y comprueba que responda la puerta de enlace de la VPN. Pulsa **Desconectar** para eliminar el perfil local y recuperar la ruta anterior. Al cerrar sesión también se desconecta. Si cierras la ventana sin desconectar, el perfil puede continuar activo; al volver a iniciar sesión la aplicación consulta su estado en NetworkManager. Necesita `nmcli`, `ping` y autorización de NetworkManager.
 
@@ -51,3 +51,5 @@ En las pruebas de este equipo, el DNS configurado de la VPN resolvió consultas,
 El registro de desarrollo requiere `NETSHIELD_DEV_REGISTRATION=1` en la API privada. No debe habilitarse en una API pública: aún faltan controles contra abuso y otros requisitos de producción.
 
 La estructura incluye proyectos iniciales de Android y Windows para trabajo futuro; esta versión solo se compiló y verificó en Linux.
+
+El acceso automático SSH usa las credenciales administrativas existentes solo en esta máquina de desarrollo. No es una distribución para usuarios finales: para producción se necesita una API HTTPS pública autenticada, sin distribuir claves SSH de administración.
