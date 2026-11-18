@@ -71,7 +71,8 @@ class LinuxVpn {
     final id = await _deviceId();
     final name = 'ns${id.substring(0, 12)}';
     final result = await Process.run('nmcli', ['-t', '-f', 'NAME', 'connection', 'show', '--active']);
-    final active = result.exitCode == 0 && (result.stdout as String).split('\n').contains(name);
+    if (result.exitCode != 0) throw const ApiException('No se pudo consultar NetworkManager.');
+    final active = (result.stdout as String).split('\n').contains(name);
     if (active) _connection = name;
     return active;
   }
