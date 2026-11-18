@@ -1,6 +1,7 @@
 """Complete lab test: isolated PostgreSQL + HTTP + real WireGuard peer."""
 import os
 import subprocess
+import sys
 
 import pytest
 from fastapi import FastAPI
@@ -35,6 +36,23 @@ def test_http_database_and_real_wireguard(lab_database):
     assert device.status_code == 201
     device_id = device.json()['id']
     assert client.post(f'/lab/devices/{device_id}/connect', headers=other).status_code == 404
+    # Kill a separate process after applying the peer but before committing ready.
+    crash_code = '''
+import os, sys
+from app.application.vpn_peers import PeerService
+from app.infrastructure.wireguard import WireGuardLab
+from lab.postgres_connection import PostgresLabConnections
+class CrashAfterApply(PeerService):
+    def provision(self, key, address):
+        super().provision(key, address)
+        os._exit(72)
+PostgresLabConnections(CrashAfterApply(WireGuardLab('wg-lab0'))).connect(int(sys.argv[1]), int(sys.argv[2]))
+'''
+    crashed = subprocess.run([sys.executable, '-c', crash_code, str(device.json()['user_id']), str(device_id)], timeout=15)
+    assert crashed.returncode == 72
+    assert connections.status(device.json()['user_id'], device_id)[0] == 'provisioning'
+    assert public in gateway.list_keys()
+    assert connections.reconcile() == {'ready': 1, 'revoked': 0, 'failed': 0}
     result = client.post(f'/lab/devices/{device_id}/connect', headers=auth)
     assert result.status_code == 200
     assert result.json()['address'] == '10.200.200.2/32'
@@ -44,6 +62,22 @@ def test_http_database_and_real_wireguard(lab_database):
     assert connections.reconcile() == {'ready': 1, 'revoked': 0, 'failed': 0}
     assert public in gateway.list_keys()
     assert client.post(f'/lab/devices/{device_id}/connect', headers=auth).json() == result.json()
+    crash_revoke = '''
+import os, sys
+from app.application.vpn_peers import PeerService
+from app.infrastructure.wireguard import WireGuardLab
+from lab.postgres_connection import PostgresLabConnections
+class CrashAfterRemove(PeerService):
+    def revoke(self, key):
+        super().revoke(key)
+        os._exit(73)
+PostgresLabConnections(CrashAfterRemove(WireGuardLab('wg-lab0'))).revoke(int(sys.argv[1]), int(sys.argv[2]))
+'''
+    crashed = subprocess.run([sys.executable, '-c', crash_revoke, str(device.json()['user_id']), str(device_id)], timeout=15)
+    assert crashed.returncode == 73
+    assert connections.status(device.json()['user_id'], device_id)[0] == 'revoking'
+    assert public not in gateway.list_keys()
+    assert connections.reconcile() == {'ready': 0, 'revoked': 1, 'failed': 0}
     assert client.post(f'/lab/devices/{device_id}/revoke', headers=auth).json() == {'state': 'revoked'}
     assert public not in gateway.list_keys()
     assert connections.status(device.json()['user_id'], device_id) == ('revoked', None)

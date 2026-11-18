@@ -8,9 +8,9 @@ read -r host port < <(python - <<'PY'
 import os
 from psycopg.conninfo import conninfo_to_dict
 p = conninfo_to_dict(os.environ['NETSHIELD_TEST_DSN'])
-if p.get('host') != '127.0.0.1' or p.get('dbname') != 'netshield_lab':
+if p.get('hostaddr', p.get('host')) != '127.0.0.1' or p.get('dbname') != 'netshield_lab':
     raise SystemExit('Expected a localhost netshield_lab database')
-print(p['host'], p.get('port', '5432'))
+print('127.0.0.1', p.get('port', '5432'))
 PY
 )
 workdir=$(mktemp -d)

@@ -23,3 +23,10 @@ No ejecutar una reconstrucción antes de inventariar y verificar copias restaura
 ## Pendientes antes de producción
 
 Autenticación endurecida y límites; exposición segura HTTPS; controlador restringido y recuperación verificada; configuración DNS y IPv6; actualización y respaldo comprobados; supervisión y auditoría; pruebas de fugas y Kill Switch en plataformas reales. La prueba de laboratorio no demuestra estos controles.
+
+
+## Resultado del ensayo de propiedad de peers
+
+Se ejecutó `scripts/test-wg-easy-ownership.sh` con un contenedor `wg-easy:13` temporal, sin red externa ni puertos publicados y con un volumen independiente. Al añadir un peer directamente con `wg set` y después crear otro mediante la API de wg-easy, el guardado eliminó el peer externo; los peers administrados por wg-easy se restauraron tras reiniciar el contenedor. Este resultado confirma que no se deben ejecutar dos administradores en la misma interfaz.
+
+La transición propuesta, aún no ejecutada, es: 1) probar una interfaz y un controlador nuevos sin alterar el servicio actual; 2) preparar reglas de red, persistencia y recuperación del controlador; 3) inventariar clientes y acordar si serán migrados o se reinscribirán; 4) verificar respaldo y un procedimiento de regreso; 5) en una ventana aprobada, detener un gestor antes de activar el otro, verificar conectividad y revocación, y no tener dos procesos escribiendo la misma interfaz. Las claves privadas y precompartidas existentes requieren tratamiento confidencial; no deben volcarse en logs ni al repositorio.

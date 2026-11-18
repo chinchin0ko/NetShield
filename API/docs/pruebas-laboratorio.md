@@ -32,3 +32,8 @@ Las pruebas pasan para las funciones indicadas, no equivalen a una revisión de 
 El coordinador es una prueba, no administra ni reconcilia `wg-easy`, y no debe usarse en producción. Aún faltan pruebas de interrupción real de procesos, aislamiento con privilegios mínimos, reconciliación después de reinicios del servidor WireGuard, y conexión con el cliente móvil. El handshake y el tráfico se comprueban por separado en `test-wireguard-traffic.sh`.
 
 Se probó también la reconciliación simulando la pérdida del peer de la interfaz y restaurándolo desde el estado almacenado, además de completar revocaciones pendientes. Esto no prueba compatibilidad con wg-easy ni reinicios reales del servidor.
+
+
+## Recuperación ante terminación del proceso
+
+La prueba conjunta termina procesos auxiliares justo después de crear o retirar un peer, antes de registrar el resultado en PostgreSQL. Un coordinador nuevo reconcilia los estados `provisioning` y `revoking` y se verifican nuevamente los peers y el estado persistido. También se comprueba la restauración después de borrar el peer de la interfaz de laboratorio. Esto no simula un reinicio completo del VPS ni resuelve la coexistencia con wg-easy.
