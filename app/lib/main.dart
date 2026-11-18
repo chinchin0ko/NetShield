@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:material_ui/material_ui.dart';
 import 'services/api_client.dart';
+import 'services/linux_vpn.dart';
 
 const cream = Color(0xFFdad7cd);
 const sage = Color(0xFFa3b18a);
@@ -11,20 +12,22 @@ const deep = Color(0xFF344e41);
 void main() => runApp(const NetShieldApp());
 
 class NetShieldApp extends StatelessWidget {
-  const NetShieldApp({super.key, this.api});
+  const NetShieldApp({super.key, this.api, this.vpn});
   final ApiClient? api;
+  final LinuxVpn? vpn;
   @override
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
     title: 'NetShield VPN',
     theme: ThemeData(useMaterial3: true, fontFamily: 'sans-serif', colorScheme: ColorScheme.fromSeed(seedColor: green)),
-    home: ShieldHome(api: api ?? ApiClient()),
+    home: ShieldHome(api: api ?? ApiClient(), vpn: vpn),
   );
 }
 
 class ShieldHome extends StatefulWidget {
-  const ShieldHome({super.key, required this.api});
+  const ShieldHome({super.key, required this.api, this.vpn});
   final ApiClient api;
+  final LinuxVpn? vpn;
   @override
   State<ShieldHome> createState() => _ShieldHomeState();
 }
@@ -34,7 +37,9 @@ class _ShieldHomeState extends State<ShieldHome> {
   final password = TextEditingController();
   final confirm = TextEditingController();
   bool register = false, loading = false, hidePassword = true;
-  String? error, token, signedInAs;
+  bool vpnConnected = false, vpnLoading = false;
+  late final LinuxVpn vpn = widget.vpn ?? LinuxVpn(widget.api);
+  String? error, notice, token, signedInAs;
 
   @override
   void dispose() { username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
@@ -48,8 +53,9 @@ class _ShieldHomeState extends State<ShieldHome> {
     setState(() { loading = true; error = null; });
     try {
       final result = await widget.api.login(username.text.trim(), password.text);
+      final active = await vpn.isConnected();
       if (!mounted) return;
-      setState(() { token = result; signedInAs = username.text.trim(); password.clear(); });
+      setState(() { token = result; signedInAs = username.text.trim(); vpnConnected = active; password.clear(); });
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
@@ -59,7 +65,59 @@ class _ShieldHomeState extends State<ShieldHome> {
     }
   }
 
-  void switchMode(bool value) => setState(() { register = value; error = null; password.clear(); confirm.clear(); });
+  Future<void> signUp() async {
+    final name = username.text.trim();
+    if (!RegExp(r'^[a-zA-Z0-9_.-]{3,64}$').hasMatch(name)) {
+      setState(() => error = 'Usuario: de 3 a 64 letras, números, punto, guion o guion bajo.');
+      return;
+    }
+    if (password.text.length < 12 || password.text.length > 128 || password.text != confirm.text) {
+      setState(() => error = 'Usa una contraseña de 12 a 128 caracteres y confírmala.');
+      return;
+    }
+    setState(() { loading = true; error = null; notice = null; });
+    try {
+      await widget.api.register(name, password.text);
+      if (!mounted) return;
+      setState(() { register = false; password.clear(); confirm.clear(); notice = 'Cuenta creada. Ya puedes iniciar sesión.'; });
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => error = 'No se pudo completar la solicitud.');
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  void switchMode(bool value) => setState(() { register = value; error = null; notice = null; password.clear(); confirm.clear(); });
+
+  Future<void> toggleVpn() async {
+    if (vpnLoading || token == null) return;
+    setState(() { vpnLoading = true; error = null; });
+    try {
+      if (vpnConnected) { await vpn.disconnect(); } else { await vpn.connect(token!); }
+      if (mounted) setState(() => vpnConnected = !vpnConnected);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => error = 'No se pudo cambiar la conexión VPN.');
+    } finally {
+      if (mounted) setState(() => vpnLoading = false);
+    }
+  }
+
+  Future<void> signOut() async {
+    if (vpnLoading) return;
+    setState(() { vpnLoading = true; error = null; });
+    try {
+      if (vpnConnected) await vpn.disconnect();
+      if (mounted) setState(() { token = null; signedInAs = null; vpnConnected = false; username.clear(); });
+    } catch (_) {
+      if (mounted) setState(() => error = 'No se pudo desconectar la VPN.');
+    } finally {
+      if (mounted) setState(() => vpnLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -119,9 +177,9 @@ class _ShieldHomeState extends State<ShieldHome> {
     input(password, 'Tu contraseña', Icons.lock_outline_rounded, obscure: hidePassword, autofill: AutofillHints.password, suffix: IconButton(tooltip: hidePassword ? 'Mostrar contraseña' : 'Ocultar contraseña', onPressed: () => setState(() => hidePassword = !hidePassword), icon: Icon(hidePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined, size: 20, color: green))),
     if (register) ...[const SizedBox(height: 18), fieldLabel('CONFIRMAR CONTRASEÑA'), const SizedBox(height: 7), input(confirm, 'Repite tu contraseña', Icons.key_rounded, obscure: hidePassword)],
     if (error != null) ...[const SizedBox(height: 14), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13, height: 1.3))],
-    if (register) ...[const SizedBox(height: 16), const Text('El registro de cuentas estará disponible próximamente.', style: TextStyle(color: forest, fontSize: 12, height: 1.4))],
+    if (notice != null) ...[const SizedBox(height: 14), Text(notice!, style: const TextStyle(color: forest, fontSize: 13))],
     const SizedBox(height: 24),
-    SizedBox(width: double.infinity, height: 54, child: FilledButton(onPressed: register || loading ? null : signIn, style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Row(mainAxisAlignment: MainAxisAlignment.center, children: [Text(register ? 'Registro próximamente' : 'Entrar a NetShield', style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(width: 9), const Icon(Icons.arrow_forward_rounded, size: 18)]))),
+    SizedBox(width: double.infinity, height: 54, child: FilledButton(onPressed: loading ? null : (register ? signUp : signIn), style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Row(mainAxisAlignment: MainAxisAlignment.center, children: [Text(register ? 'Crear cuenta' : 'Entrar a NetShield', style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(width: 9), const Icon(Icons.arrow_forward_rounded, size: 18)]))),
     const SizedBox(height: 20),
     const Center(child: Text('DISEÑADO PARA TU TRANQUILIDAD', style: TextStyle(color: Color(0xFF9aa896), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1.3))),
   ]);
@@ -133,12 +191,12 @@ class _ShieldHomeState extends State<ShieldHome> {
     const SizedBox(height: 36),
     Center(child: Container(width: 156, height: 156, decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFeef1e5), Color(0xFFbdceb1), Color(0xFF90a98c)]), border: Border.all(color: Colors.white.withValues(alpha: .8), width: 2), boxShadow: [BoxShadow(color: deep.withValues(alpha: .15), blurRadius: 22, offset: const Offset(0, 10))]), child: const Icon(Icons.power_settings_new_rounded, size: 61, color: forest))),
     const SizedBox(height: 25),
-    const Center(child: Text('Desconectado', style: TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
+    Center(child: Text(vpnConnected ? 'Conectado' : 'Desconectado', style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
     const SizedBox(height: 8),
-    const Center(child: Text('La conexión VPN estará disponible próximamente.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
+    Center(child: Text(error ?? (vpnConnected ? 'Túnel de desarrollo activo.' : 'Conéctate para activar el túnel de desarrollo.'), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
     const SizedBox(height: 30),
-    SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: null, style: FilledButton.styleFrom(disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: const Text('Conexión próximamente', style: TextStyle(fontWeight: FontWeight.w800)))),
-    const SizedBox(height: 18), Center(child: TextButton.icon(onPressed: () => setState(() { token = null; signedInAs = null; username.clear(); }), icon: const Icon(Icons.logout_rounded, size: 17), label: const Text('Cerrar sesión'), style: TextButton.styleFrom(foregroundColor: forest))),
+    SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : 'Conectar'), style: const TextStyle(fontWeight: FontWeight.w800)))),
+    const SizedBox(height: 18), Center(child: TextButton.icon(onPressed: vpnLoading ? null : signOut, icon: const Icon(Icons.logout_rounded, size: 17), label: const Text('Cerrar sesión'), style: TextButton.styleFrom(foregroundColor: forest))),
   ]);
 
   Widget tab(String title, bool active, VoidCallback onTap) => Expanded(child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(12), child: AnimatedContainer(duration: const Duration(milliseconds: 180), padding: const EdgeInsets.symmetric(vertical: 12), decoration: BoxDecoration(color: active ? Colors.white : Colors.transparent, borderRadius: BorderRadius.circular(12), boxShadow: active ? [BoxShadow(color: deep.withValues(alpha: .07), blurRadius: 8, offset: const Offset(0, 3))] : []), child: Text(title, textAlign: TextAlign.center, style: TextStyle(color: active ? deep : const Color(0xFF84927f), fontSize: 12, fontWeight: FontWeight.w800)))));

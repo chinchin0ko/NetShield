@@ -9,3 +9,9 @@ El socket acepta una línea JSON terminada en salto de línea, máximo 2048 byte
 ## Limitaciones
 
 El agente todavía no se integra con las rutas de FastAPI ni con la base de datos. Los peers no se restauran automáticamente después de reiniciar el servicio. Su red no está conectada a Internet o a los clientes móviles. Las restricciones y pruebas aquí realizadas no constituyen una auditoría de seguridad; antes de producción faltan reconciliación, privilegios y acceso de servicio revisados, conectividad de túnel y pruebas de extremo a extremo.
+
+## Puente de desarrollo con wg-easy
+
+`wg_easy_bridge.py` ofrece una integración temporal con wg-easy 13, que sigue siendo el único administrador de `wg0`. La API invoca el puente mediante SSH con clave dedicada y comando forzado; el puente acepta exclusivamente el identificador de usuario que la API obtuvo del token y un identificador de dispositivo de 32 caracteres hexadecimales. Bajo un bloqueo, busca o crea el peer correspondiente y devuelve su configuración. El puente corre con privilegios para leer la contraseña local del contenedor; la clave SSH está restringida por origen y comando. El archivo de host conocido está fijado en la instancia API. No se almacenan claves SSH o contraseñas en el repositorio.
+
+El endpoint autenticado `POST /vpn/config` entrega el archivo con `Cache-Control: no-store`. En desarrollo, el backend sigue limitado a localhost y se accede mediante el túnel SSH existente. En este diseño temporal wg-easy genera y conserva las claves privadas de los clientes. No ofrece revocación desde el cliente, límites de creación, identidad criptográfica por dispositivo ni una estrategia de producción: se requieren antes de exponer la API a Internet.

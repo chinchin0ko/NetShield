@@ -1,6 +1,6 @@
 # NetShield — aplicación de escritorio
 
-Primera versión de la interfaz en Flutter para Linux. Incluye inicio de sesión contra la API de desarrollo y una pantalla de conexión. El registro y el botón de VPN todavía no están habilitados: requieren integración adicional en el backend y con WireGuard.
+Cliente de desarrollo en Flutter para Linux. Incluye registro, inicio de sesión y conexión WireGuard mediante NetworkManager. La API privada solicita la configuración al administrador wg-easy existente.
 
 ## Probar en el equipo de desarrollo
 
@@ -30,5 +30,11 @@ flutter run -d linux
 ```
 
 Por defecto se conecta a `http://127.0.0.1:18000` a través del túnel. Para otra API puede configurarse `--dart-define=NETSHIELD_API_URL=https://...`; HTTP solo se permite en localhost. El token se conserva únicamente en memoria durante la sesión.
+
+En la pantalla principal, pulsa **Conectar**. La aplicación importa un perfil WireGuard en NetworkManager y comprueba que responda la puerta de enlace de la VPN. Pulsa **Desconectar** para eliminar el perfil local y recuperar la ruta anterior. Al cerrar sesión también se desconecta. Si cierras la ventana sin desconectar, el perfil puede continuar activo; al volver a iniciar sesión la aplicación consulta su estado en NetworkManager. Necesita `nmcli`, `ping` y autorización de NetworkManager.
+
+Esta integración es para desarrollo: wg-easy genera y almacena las claves del cliente en el servidor. Todavía no hay kill switch, revocación de dispositivos desde la aplicación ni verificación continua del túnel; no se ha comprobado la ausencia de fugas DNS o IPv6. No se debe considerar lista para producción.
+
+El registro de desarrollo requiere `NETSHIELD_DEV_REGISTRATION=1` en la API privada. No debe habilitarse en una API pública: aún faltan controles contra abuso y otros requisitos de producción.
 
 La estructura incluye proyectos iniciales de Android y Windows para trabajo futuro; esta versión solo se compiló y verificó en Linux.

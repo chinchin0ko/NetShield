@@ -1,6 +1,7 @@
 """HTTP adapter: maps requests and responses to application use cases."""
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException
+import os
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,23 @@ bearer = HTTPBearer(auto_error=False)
 class Credentials(BaseModel):
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=1, max_length=1024)
+
+
+class NewAccount(BaseModel):
+    username: str = Field(min_length=3, max_length=64, pattern=r'^[a-zA-Z0-9_.-]+$')
+    password: str = Field(min_length=12, max_length=128)
+
+
+@router.post('/auth/register', status_code=201)
+def register_account(data: NewAccount, service: AuthService = Depends(get_auth_service)):
+    # Explicit opt-in for the private development environment only.
+    if os.environ.get('NETSHIELD_DEV_REGISTRATION') != '1':
+        raise HTTPException(status_code=404, detail='Not found')
+    try:
+        service.create_user(data.username, data.password)
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(status_code=409, detail='Username unavailable') from None
+    return {'message': 'Account created'}
 
 
 @router.get("/health/live")
@@ -64,6 +82,21 @@ def current_identity(credentials: HTTPAuthorizationCredentials | None = Depends(
         return service.current_identity(credentials.credentials)
     except AuthenticationError:
         raise HTTPException(status_code=401, detail='Invalid token', headers={'WWW-Authenticate': 'Bearer'}) from None
+
+
+class VPNRequest(BaseModel):
+    device_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+
+
+@router.post('/vpn/config')
+def vpn_config(data: VPNRequest, response: Response, user=Depends(current_identity)):
+    from app.infrastructure.wg_easy_bridge import provision, ProvisioningError
+    try:
+        config = provision(user.id, data.device_id)
+    except ProvisioningError:
+        raise HTTPException(status_code=503, detail='VPN unavailable') from None
+    response.headers['Cache-Control'] = 'no-store'
+    return {'config': config}
 
 
 @router.post('/devices', status_code=201)
