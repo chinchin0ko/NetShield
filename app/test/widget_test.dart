@@ -7,6 +7,7 @@ import 'package:netshield_app/services/linux_vpn.dart';
 class FakeVpn extends LinuxVpn {
   FakeVpn(super.api);
   bool connected = false;
+  String? connectedAccount;
   @override
   Future<String> deviceId() async => 'a' * 32;
   @override
@@ -14,7 +15,7 @@ class FakeVpn extends LinuxVpn {
   @override
   Future<bool> isConnected() async => connected;
   @override
-  Future<void> connect(String token) async { connected = true; }
+  Future<void> connect(String token, String account) async { connected = true; connectedAccount = account; }
   @override
   Future<void> disconnect() async { connected = false; }
 }
@@ -43,7 +44,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final api = FakeApi();
-    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api)));
+    final vpn = FakeVpn(api);
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
     await tester.enterText(find.byType(TextField).at(0), 'demo');
     await tester.enterText(find.byType(TextField).at(1), 'password');
     await tester.tap(find.text('Entrar a NetShield'));
@@ -52,6 +54,7 @@ void main() {
     expect(find.text('Desconectado'), findsOneWidget);
     await tester.tap(find.text('Conectar'));
     await tester.pumpAndSettle();
+    expect(vpn.connectedAccount, 'demo');
     expect(find.text('Conectado'), findsOneWidget);
     await tester.tap(find.text('Desconectar'));
     await tester.pumpAndSettle();

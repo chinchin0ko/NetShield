@@ -109,7 +109,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     if (vpnLoading || token == null) return;
     setState(() { vpnLoading = true; error = null; });
     try {
-      if (vpnConnected || trafficBlocked) { await vpn.disconnect(); } else { await vpn.connect(token!); }
+      if (vpnConnected || trafficBlocked) { await vpn.disconnect(); } else { await vpn.connect(token!, signedInAs!); }
       if (mounted) setState(() { vpnConnected = !(vpnConnected || trafficBlocked); trafficBlocked = vpnConnected; });
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);

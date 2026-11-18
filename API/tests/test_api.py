@@ -94,6 +94,11 @@ def test_vpn_config_requires_identity_and_uses_authenticated_user(monkeypatch):
         assert result.headers['cache-control'] == 'no-store'
         assert calls == [(7, device, public_key)]
         assert client.post('/vpn/config', json={'device_id': 'invalid', 'public_key': public_key}, headers={'Authorization': f'Bearer {token}'}).status_code == 422
+        from app.infrastructure.wg_easy_bridge import DeviceKeyConflict
+        def conflict(*args):
+            raise DeviceKeyConflict
+        monkeypatch.setattr('app.infrastructure.wg_easy_bridge.provision', conflict)
+        assert client.post('/vpn/config', json={'device_id': device, 'public_key': public_key}, headers={'Authorization': f'Bearer {token}'}).status_code == 409
     finally:
         app.dependency_overrides.clear()
 

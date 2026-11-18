@@ -38,10 +38,18 @@ class LinuxVpn {
     return value;
   }
 
-  Future<String> _privateKey() async {
+  Future<String> _privateKey(String account) async {
     final home = Platform.environment['HOME'];
     if (home == null) throw const ApiException('No se encontró tu carpeta personal.');
-    final file = File('$home/.local/share/netshield/wireguard.key');
+    // WireGuard public keys must be unique across peers. Keep separate keys
+    // for accounts that sign in on the same computer.
+    final accountId = base64Url.encode(utf8.encode(account)).replaceAll('=', '');
+    if (accountId.isEmpty || accountId.length > 172) throw const ApiException('La cuenta es inválida.');
+    final directory = Directory('$home/.local/share/netshield/accounts');
+    await directory.create(recursive: true);
+    final dirPermission = await Process.run('chmod', ['700', directory.path]);
+    if (dirPermission.exitCode != 0) throw const ApiException('No se pudo proteger la carpeta de claves.');
+    final file = File('${directory.path}/$accountId.key');
     if (await file.exists()) {
       final key = (await file.readAsString()).trim();
       try {
@@ -116,10 +124,10 @@ class LinuxVpn {
     await file.delete();
   }
 
-  Future<void> connect(String token) async {
+  Future<void> connect(String token, String account) async {
     if (!Platform.isLinux) throw const ApiException('Esta versión solo permite conexiones en Linux.');
     final id = await _deviceId();
-    final privateKey = await _privateKey();
+    final privateKey = await _privateKey(account);
     final publicKey = await _publicKey(privateKey);
     final template = await api.vpnConfig(token, id, publicKey);
     if (!RegExp(r'^PrivateKey\s*=\s*REPLACE_ME\s*$', multiLine: true).hasMatch(template)) {

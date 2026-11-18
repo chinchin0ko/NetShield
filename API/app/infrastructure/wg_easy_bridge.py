@@ -13,6 +13,10 @@ class DeviceRevoked(Exception):
     pass
 
 
+class DeviceKeyConflict(Exception):
+    pass
+
+
 def _request(user_id: int, operation: str, device_id: str | None = None, public_key: str | None = None) -> dict:
     if operation not in {'provision', 'revoke', 'list'} or (device_id is not None and not re.fullmatch(r'[0-9a-f]{32}', device_id)):
         raise ValueError('invalid request')
@@ -35,6 +39,8 @@ def _request(user_id: int, operation: str, device_id: str | None = None, public_
             raise ValueError('invalid response')
         if data.get('error') == 'revoked':
             raise DeviceRevoked
+        if data.get('error') == 'key_conflict':
+            raise DeviceKeyConflict
         if 'error' in data:
             raise ValueError('bridge error')
         return data

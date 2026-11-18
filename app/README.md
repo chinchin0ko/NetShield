@@ -33,7 +33,7 @@ Por defecto crea un túnel privado de desarrollo en un puerto local temporal. Pa
 
 En la pantalla principal, pulsa **Conectar**. La aplicación importa un perfil WireGuard en NetworkManager y comprueba que responda la puerta de enlace de la VPN. Pulsa **Desconectar** para eliminar el perfil local y recuperar la ruta anterior. Al cerrar sesión también se desconecta. Si cierras la ventana sin desconectar, el perfil puede continuar activo; al volver a iniciar sesión la aplicación consulta su estado en NetworkManager. Necesita `nmcli`, `ping` y autorización de NetworkManager.
 
-La clave privada de los nuevos dispositivos se genera localmente en `~/.local/share/netshield/wireguard.key` con permisos 0600. La API solo recibe la clave pública. La primera conexión de un dispositivo anterior cambia su peer a la nueva clave local. Los peers antiguos no migrados y las copias protegidas anteriores a la migración pueden conservar claves antiguas.
+Las claves privadas se generan localmente con permisos 0600 en `~/.local/share/netshield/accounts/`, con una clave distinta por cada cuenta que usa el equipo. La API solo recibe la clave pública. Al conectar con una versión anterior del cliente, el peer de esa cuenta se actualiza con su nueva clave local. Los peers antiguos no migrados y las copias protegidas anteriores a la migración pueden conservar claves antiguas.
 
 El bloqueo de tráfico usa nftables y necesita instalar una herramienta y una política de polkit protegidas por root. En esta máquina ya están instaladas; en otra instalación Arch se puede instalar desde el directorio `app/` con:
 

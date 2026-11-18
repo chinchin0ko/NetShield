@@ -92,7 +92,7 @@ class VPNRequest(BaseModel):
 
 @router.post('/vpn/config')
 def vpn_config(data: VPNRequest, response: Response, user=Depends(current_identity)):
-    from app.infrastructure.wg_easy_bridge import provision, ProvisioningError, DeviceRevoked
+    from app.infrastructure.wg_easy_bridge import provision, ProvisioningError, DeviceRevoked, DeviceKeyConflict
     from app.application.vpn_peers import PeerService
     try:
         PeerService._key(data.public_key)
@@ -103,6 +103,8 @@ def vpn_config(data: VPNRequest, response: Response, user=Depends(current_identi
         raise HTTPException(status_code=503, detail='VPN unavailable') from None
     except DeviceRevoked:
         raise HTTPException(status_code=403, detail='Device revoked') from None
+    except DeviceKeyConflict:
+        raise HTTPException(status_code=409, detail='Device key already in use') from None
     response.headers['Cache-Control'] = 'no-store'
     return {'config': config}
 

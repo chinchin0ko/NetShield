@@ -60,6 +60,11 @@ def main():
         matches = [x for x in clients if x.get('name') == name]
         if len(matches) > 1:
             raise RuntimeError('duplicate peer')
+        if op == 'provision' and public_key is not None and any(
+            peer.get('publicKey') == public_key and peer.get('name') != name for peer in clients
+        ):
+            sys.stdout.write(json.dumps({'error': 'key_conflict'}) + '\n')
+            return
         if op == 'revoke':
             if not matches:
                 sys.stdout.write(json.dumps({'found': False}) + '\n')
