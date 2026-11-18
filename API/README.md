@@ -69,3 +69,7 @@ La [arquitectura propuesta para OCI](docs/arquitectura-instancias.md) describe l
 En el entorno de desarrollo de NetShield, `./scripts/simular-one-click.sh` usa SSH para ejecutar pruebas con datos temporales en la instancia API y la base `netshield_lab`. Simula el controlador de peers: **no conecta la VPN ni enruta tráfico del equipo**. Depende de la configuración privada instalada en esas instancias. Se pueden ajustar `NETSHIELD_SSH_KEY`, `NETSHIELD_SSH_JUMP` y `NETSHIELD_SSH_API`.
 
 Para reproducir la comprobación del propietario de peers se puede ejecutar `./scripts/test-wg-easy-ownership.sh` en un host Linux con Docker y soporte WireGuard; crea un contenedor aislado sin puertos publicados y elimina su volumen temporal al terminar.
+
+## API de desarrollo en OCI
+
+En el entorno de desarrollo instalado, `./scripts/abrir-api-dev.sh` abre un túnel SSH y permite consultar `http://127.0.0.1:18000/docs` desde esta computadora. El usuario temporal es `demo`; `./scripts/abrir-api-dev.sh --password` muestra su contraseña. El túnel debe permanecer abierto. No comparta esa contraseña. La API de desarrollo solo registra dispositivos; no configura ni conecta WireGuard.
