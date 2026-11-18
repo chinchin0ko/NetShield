@@ -73,3 +73,5 @@ Para reproducir la comprobación del propietario de peers se puede ejecutar `./s
 ## API de desarrollo en OCI
 
 En el entorno de desarrollo instalado, `./scripts/abrir-api-dev.sh` abre un túnel SSH y permite consultar `http://127.0.0.1:18000/docs` desde esta computadora. El usuario temporal es `demo`; `./scripts/abrir-api-dev.sh --password` muestra su contraseña. El túnel debe permanecer abierto. No comparta esa contraseña. La API de desarrollo solo registra dispositivos; no configura ni conecta WireGuard.
+
+El [controlador aislado de desarrollo](controller/README.md) explica los permisos y límites de su servicio.
