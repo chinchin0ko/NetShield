@@ -37,3 +37,5 @@ Se probó también la reconciliación simulando la pérdida del peer de la inter
 ## Recuperación ante terminación del proceso
 
 La prueba conjunta termina procesos auxiliares justo después de crear o retirar un peer, antes de registrar el resultado en PostgreSQL. Un coordinador nuevo reconcilia los estados `provisioning` y `revoking` y se verifican nuevamente los peers y el estado persistido. También se comprueba la restauración después de borrar el peer de la interfaz de laboratorio. Esto no simula un reinicio completo del VPS ni resuelve la coexistencia con wg-easy.
+
+La prueba de colisión comprueba que una segunda clave no pueda desplazar la ruta asignada a otro peer. Esta comprobación no es atómica: el controlador todavía necesita garantizar que sea el único proceso que escribe en la interfaz.

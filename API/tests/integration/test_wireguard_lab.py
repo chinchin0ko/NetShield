@@ -102,3 +102,23 @@ def test_authenticated_api_to_kernel_peer(tmp_path, monkeypatch):
     assert client.post('/lab/devices/1/revoke', headers=other).status_code == 404
     assert client.post('/lab/devices/1/revoke', headers=owner).json() == {'state': 'revoked'}
     assert public not in gateway.list_keys()
+
+
+def test_collision_does_not_steal_existing_peer_route():
+    if os.environ.get('NETSHIELD_WG_LAB') != '1':
+        pytest.skip('Run through scripts/test-wireguard-lab.sh')
+    def public_key():
+        private = subprocess.run(['wg', 'genkey'], check=True, capture_output=True).stdout
+        return subprocess.run(['wg', 'pubkey'], input=private, check=True, capture_output=True).stdout.decode().strip()
+    first, second = public_key(), public_key()
+    gateway = WireGuardLab('wg-lab0')
+    service = PeerService(gateway)
+    try:
+        service.provision(first, '10.200.200.2/32')
+        with pytest.raises(ValueError, match='overlaps'):
+            service.provision(second, '10.200.200.2/32')
+        routes = subprocess.run(['wg', 'show', 'wg-lab0', 'allowed-ips'], check=True, capture_output=True, text=True).stdout
+        assert first in routes and '10.200.200.2/32' in routes
+        assert second not in gateway.list_keys()
+    finally:
+        service.revoke(first)
