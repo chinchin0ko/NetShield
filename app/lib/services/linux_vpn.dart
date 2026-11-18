@@ -1,11 +1,23 @@
 import 'dart:io';
 import 'dart:math';
+import 'dart:convert';
 import 'api_client.dart';
 
 class LinuxVpn {
   LinuxVpn(this.api);
   final ApiClient api;
   String? _connection;
+
+  Future<String> deviceId() => _deviceId();
+  Future<bool> isKillSwitchEnabled() => File('/run/netshield-lock/active').exists();
+
+  Future<void> _switch(List<String> arguments) async {
+    if (!await File('/usr/local/sbin/netshield-killswitch').exists()) {
+      throw const ApiException('Falta instalar el bloqueo de tráfico de NetShield. Consulta las instrucciones de instalación.');
+    }
+    final result = await Process.run('pkexec', ['/usr/local/sbin/netshield-killswitch', ...arguments]);
+    if (result.exitCode != 0) throw const ApiException('No se pudo cambiar el bloqueo de tráfico. Revisa la autorización de administrador.');
+  }
 
   Future<String> _deviceId() async {
     final home = Platform.environment['HOME'];
@@ -26,18 +38,106 @@ class LinuxVpn {
     return value;
   }
 
+  Future<String> _privateKey() async {
+    final home = Platform.environment['HOME'];
+    if (home == null) throw const ApiException('No se encontró tu carpeta personal.');
+    final file = File('$home/.local/share/netshield/wireguard.key');
+    if (await file.exists()) {
+      final key = (await file.readAsString()).trim();
+      try {
+        if (base64.decode(key).length == 32 && base64.encode(base64.decode(key)) == key) return key;
+      } catch (_) { /* Reject invalid key material. */ }
+      throw const ApiException('La clave local de WireGuard es inválida.');
+    }
+    final result = await Process.run('wg', ['genkey']);
+    if (result.exitCode != 0) throw const ApiException('No se pudo crear la clave local de WireGuard.');
+    final key = result.stdout.toString().trim();
+    if (base64.decode(key).length != 32) throw const ApiException('La clave generada es inválida.');
+    await file.writeAsString(key, flush: true);
+    final permission = await Process.run('chmod', ['600', file.path]);
+    if (permission.exitCode != 0) throw const ApiException('No se pudieron proteger los permisos de la clave.');
+    return key;
+  }
+
+  Future<String> _publicKey(String privateKey) async {
+    final process = await Process.start('wg', ['pubkey']);
+    process.stdin.writeln(privateKey);
+    await process.stdin.close();
+    final stdoutText = await utf8.decoder.bind(process.stdout).join();
+    final stderrText = await utf8.decoder.bind(process.stderr).join();
+    if (await process.exitCode != 0 || stderrText.isNotEmpty) throw const ApiException('No se pudo derivar la clave pública.');
+    final key = stdoutText.trim();
+    if (base64.decode(key).length != 32) throw const ApiException('La clave pública es inválida.');
+    return key;
+  }
+
   Future<void> _nm(List<String> args, {bool check = true}) async {
     final result = await Process.run('nmcli', args).timeout(const Duration(seconds: 45));
     if (check && result.exitCode != 0) throw const ApiException('NetworkManager no pudo activar la VPN.');
   }
 
+  Future<File> _routeFile() async {
+    final home = Platform.environment['HOME'];
+    if (home == null) throw const ApiException('No se encontró tu carpeta personal.');
+    return File('$home/.local/share/netshield/management-route.json');
+  }
+
+  Future<void> _keepDevelopmentTunnel(String config) async {
+    if (api.baseUrl.host != '127.0.0.1' && api.baseUrl.host != 'localhost') return;
+    final endpoint = RegExp(r'^Endpoint\s*=\s*([0-9.]+):\d+\s*$', multiLine: true).firstMatch(config)?.group(1);
+    if (endpoint == null || InternetAddress.tryParse(endpoint)?.type != InternetAddressType.IPv4) {
+      throw const ApiException('No se encontró la dirección IPv4 del servidor VPN.');
+    }
+    final result = await Process.run('ip', ['-j', '-4', 'route', 'get', endpoint]);
+    if (result.exitCode != 0) throw const ApiException('No se encontró la ruta de administración.');
+    final routes = jsonDecode(result.stdout.toString());
+    if (routes is! List || routes.isEmpty || routes[0] is! Map) throw const ApiException('La ruta de administración es inválida.');
+    final route = routes[0] as Map;
+    final device = route['dev'];
+    final gateway = route['gateway'];
+    if (device is! String || gateway is! String || InternetAddress.tryParse(gateway)?.type != InternetAddressType.IPv4 || !RegExp(r'^[a-zA-Z0-9_.-]{1,15}$').hasMatch(device)) {
+      throw const ApiException('No se pudo conservar el acceso a la API de desarrollo.');
+    }
+    final routeValue = '$endpoint/32 $gateway 42777';
+    final file = await _routeFile();
+    await file.writeAsString(jsonEncode({'device': device, 'route': routeValue}), flush: true);
+    await Process.run('chmod', ['600', file.path]);
+    await _nm(['device', 'modify', device, '+ipv4.routes', routeValue]);
+  }
+
+  Future<void> _removeManagementRoute() async {
+    final file = await _routeFile();
+    if (!await file.exists()) return;
+    final data = jsonDecode(await file.readAsString());
+    if (data is! Map || data['device'] is! String || data['route'] is! String || !RegExp(r'^[a-zA-Z0-9_.-]{1,15}$').hasMatch(data['device']) || !RegExp(r'^[0-9.]+/32 [0-9.]+ 42777$').hasMatch(data['route'])) {
+      throw const ApiException('No se pudo restaurar la ruta de administración.');
+    }
+    await _nm(['device', 'modify', data['device'], '-ipv4.routes', data['route']]);
+    await file.delete();
+  }
+
   Future<void> connect(String token) async {
     if (!Platform.isLinux) throw const ApiException('Esta versión solo permite conexiones en Linux.');
     final id = await _deviceId();
-    final config = await api.vpnConfig(token, id);
+    final privateKey = await _privateKey();
+    final publicKey = await _publicKey(privateKey);
+    final template = await api.vpnConfig(token, id, publicKey);
+    if (!RegExp(r'^PrivateKey\s*=\s*REPLACE_ME\s*$', multiLine: true).hasMatch(template)) {
+      throw const ApiException('El servidor no aceptó la clave pública local.');
+    }
+    final config = template.replaceFirst(RegExp(r'^PrivateKey\s*=\s*REPLACE_ME\s*$', multiLine: true), 'PrivateKey = $privateKey');
+    if (!RegExp(r'^AllowedIPs\s*=.*\b0\.0\.0\.0/0\b.*::/0\s*$', multiLine: true).hasMatch(config)) {
+      throw const ApiException('La configuración VPN no incluye rutas completas IPv4 e IPv6.');
+    }
     final name = 'ns${id.substring(0, 12)}';
+    final endpoint = RegExp(r'^Endpoint\s*=\s*([0-9.]+):51820\s*$', multiLine: true).firstMatch(config)?.group(1);
+    if (endpoint == null || InternetAddress.tryParse(endpoint)?.type != InternetAddressType.IPv4) {
+      throw const ApiException('La dirección del servidor VPN es inválida.');
+    }
     final temp = await Directory.systemTemp.createTemp('netshield-');
     try {
+      await _keepDevelopmentTunnel(config);
+      await _switch(['enable', name, endpoint]);
       final file = File('${temp.path}/$name.conf');
       await file.writeAsString(config, flush: true);
       await Process.run('chmod', ['600', file.path]);
@@ -45,12 +145,22 @@ class LinuxVpn {
       await _nm(['connection', 'delete', 'id', name], check: false);
       await _nm(['connection', 'import', 'type', 'wireguard', 'file', file.path]);
       _connection = name;
-      await _nm(['connection', 'modify', 'id', name, 'connection.autoconnect', 'no']);
+      // wg-easy currently has no IPv6 gateway. Assign an IPv6 address so
+      // NetworkManager installs the IPv6 default route into WireGuard; IPv6
+      // then fails closed instead of falling back to the physical interface.
+      await _nm(['connection', 'modify', 'id', name, 'connection.autoconnect', 'no', 'ipv6.method', 'manual', 'ipv6.addresses', 'fd42:4e53::2/128', 'ipv4.dns-priority', '-50']);
       await _nm(['connection', 'up', 'id', name]);
+      for (final address in ['1.1.1.1', '2606:4700:4700::1111']) {
+        final family = address.contains(':') ? '-6' : '-4';
+        final route = await Process.run('ip', [family, 'route', 'get', address]);
+        if (route.exitCode != 0 || !RegExp('\\bdev ${RegExp.escape(name)}\\b').hasMatch(route.stdout.toString())) {
+          throw const ApiException('La VPN no pudo asegurar las rutas de red.');
+        }
+      }
       final ping = await Process.run('ping', ['-4', '-c', '1', '-W', '5', '10.8.0.1']).timeout(const Duration(seconds: 8));
       if (ping.exitCode != 0) throw const ApiException('No hubo respuesta a través del túnel VPN.');
     } catch (_) {
-      await disconnect();
+      if (!await isKillSwitchEnabled()) await _removeManagementRoute();
       rethrow;
     } finally {
       await temp.delete(recursive: true);
@@ -64,6 +174,8 @@ class LinuxVpn {
     if (await isConnected()) {
       throw const ApiException('No se pudo desconectar la VPN.');
     }
+    await _removeManagementRoute();
+    if (await isKillSwitchEnabled()) await _switch(['disable']);
     _connection = null;
   }
 

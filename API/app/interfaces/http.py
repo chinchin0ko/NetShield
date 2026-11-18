@@ -1,6 +1,7 @@
 """HTTP adapter: maps requests and responses to application use cases."""
 import psycopg
 import os
+import re
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -86,17 +87,45 @@ def current_identity(credentials: HTTPAuthorizationCredentials | None = Depends(
 
 class VPNRequest(BaseModel):
     device_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+    public_key: str = Field(min_length=44, max_length=44)
 
 
 @router.post('/vpn/config')
 def vpn_config(data: VPNRequest, response: Response, user=Depends(current_identity)):
-    from app.infrastructure.wg_easy_bridge import provision, ProvisioningError
+    from app.infrastructure.wg_easy_bridge import provision, ProvisioningError, DeviceRevoked
+    from app.application.vpn_peers import PeerService
     try:
-        config = provision(user.id, data.device_id)
+        PeerService._key(data.public_key)
+        config = provision(user.id, data.device_id, data.public_key)
+    except ValueError:
+        raise HTTPException(status_code=422, detail='Invalid public key') from None
     except ProvisioningError:
         raise HTTPException(status_code=503, detail='VPN unavailable') from None
+    except DeviceRevoked:
+        raise HTTPException(status_code=403, detail='Device revoked') from None
     response.headers['Cache-Control'] = 'no-store'
     return {'config': config}
+
+
+@router.get('/vpn/devices')
+def vpn_devices(user=Depends(current_identity)):
+    from app.infrastructure.wg_easy_bridge import list_devices, ProvisioningError
+    try:
+        return {'devices': list_devices(user.id)}
+    except ProvisioningError:
+        raise HTTPException(status_code=503, detail='VPN unavailable') from None
+
+
+@router.post('/vpn/devices/{device_id}/revoke', status_code=204)
+def revoke_vpn_device(device_id: str, user=Depends(current_identity)):
+    from app.infrastructure.wg_easy_bridge import revoke, ProvisioningError
+    if not re.fullmatch(r'[0-9a-f]{32}', device_id):
+        raise HTTPException(status_code=422, detail='Invalid device ID')
+    try:
+        if not revoke(user.id, device_id):
+            raise HTTPException(status_code=404, detail='Device not found')
+    except ProvisioningError:
+        raise HTTPException(status_code=503, detail='VPN unavailable') from None
 
 
 @router.post('/devices', status_code=201)

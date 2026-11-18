@@ -8,6 +8,10 @@ class FakeVpn extends LinuxVpn {
   FakeVpn(super.api);
   bool connected = false;
   @override
+  Future<String> deviceId() async => 'a' * 32;
+  @override
+  Future<bool> isKillSwitchEnabled() async => connected;
+  @override
   Future<bool> isConnected() async => connected;
   @override
   Future<void> connect(String token) async { connected = true; }
@@ -18,6 +22,11 @@ class FakeVpn extends LinuxVpn {
 class FakeApi extends ApiClient {
   FakeApi({this.fail = false});
   final bool fail;
+  bool revoked = false;
+  @override
+  Future<List<Map<String, dynamic>>> vpnDevices(String token) async => [{'device_id': 'b' * 32, 'enabled': true}];
+  @override
+  Future<void> revokeVpnDevice(String token, String deviceId) async { revoked = true; }
   @override
   Future<void> register(String username, String password) async {}
   @override
@@ -79,5 +88,26 @@ void main() {
     await tester.tap(find.text('Entrar a NetShield'));
     await tester.pumpAndSettle();
     expect(find.text('Usuario o contraseña incorrectos.'), findsOneWidget);
+  });
+
+  testWidgets('Device revocation requires confirmation', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api)));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Administrar dispositivos'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Revocar'));
+    await tester.pumpAndSettle();
+    expect(api.revoked, isFalse);
+    await tester.tap(find.text('Revocar').last);
+    await tester.pumpAndSettle();
+    expect(api.revoked, isTrue);
   });
 }

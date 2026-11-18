@@ -79,19 +79,41 @@ def test_vpn_config_requires_identity_and_uses_authenticated_user(monkeypatch):
     users = FakeUsers(User(7, 'alice', passwords.hash('long test password'), True))
     app.dependency_overrides[get_auth_service] = lambda: AuthService(users, passwords, JwtTokens())
     calls = []
-    def provision(user_id, device_id):
-        calls.append((user_id, device_id))
+    def provision(user_id, device_id, public_key):
+        calls.append((user_id, device_id, public_key))
         return '[Interface]\n[Peer]\n'
     monkeypatch.setattr('app.infrastructure.wg_easy_bridge.provision', provision)
     try:
         client = TestClient(app)
         device = 'a' * 32
-        assert client.post('/vpn/config', json={'device_id': device}).status_code == 401
+        public_key = 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE='
+        assert client.post('/vpn/config', json={'device_id': device, 'public_key': public_key}).status_code == 401
         token = client.post('/auth/token', json={'username': 'alice', 'password': 'long test password'}).json()['access_token']
-        result = client.post('/vpn/config', json={'device_id': device}, headers={'Authorization': f'Bearer {token}'})
+        result = client.post('/vpn/config', json={'device_id': device, 'public_key': public_key}, headers={'Authorization': f'Bearer {token}'})
         assert result.status_code == 200
         assert result.headers['cache-control'] == 'no-store'
-        assert calls == [(7, device)]
-        assert client.post('/vpn/config', json={'device_id': 'invalid'}, headers={'Authorization': f'Bearer {token}'}).status_code == 422
+        assert calls == [(7, device, public_key)]
+        assert client.post('/vpn/config', json={'device_id': 'invalid', 'public_key': public_key}, headers={'Authorization': f'Bearer {token}'}).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_vpn_device_listing_and_revocation_use_authenticated_owner(monkeypatch):
+    monkeypatch.setenv('NETSHIELD_JWT_SECRET', 'x' * 40)
+    passwords = Argon2Passwords()
+    users = FakeUsers(User(7, 'alice', passwords.hash('long test password'), True))
+    app.dependency_overrides[get_auth_service] = lambda: AuthService(users, passwords, JwtTokens())
+    calls = []
+    monkeypatch.setattr('app.infrastructure.wg_easy_bridge.list_devices', lambda user_id: [{'device_id': 'a' * 32, 'enabled': True}] if user_id == 7 else [])
+    monkeypatch.setattr('app.infrastructure.wg_easy_bridge.revoke', lambda user_id, device_id: calls.append((user_id, device_id)) or True)
+    try:
+        client = TestClient(app)
+        assert client.get('/vpn/devices').status_code == 401
+        token = client.post('/auth/token', json={'username': 'alice', 'password': 'long test password'}).json()['access_token']
+        headers = {'Authorization': f'Bearer {token}'}
+        assert len(client.get('/vpn/devices', headers=headers).json()['devices']) == 1
+        assert client.post('/vpn/devices/' + 'a' * 32 + '/revoke', headers=headers).status_code == 204
+        assert calls == [(7, 'a' * 32)]
+        assert client.post('/vpn/devices/invalid/revoke', headers=headers).status_code == 422
     finally:
         app.dependency_overrides.clear()

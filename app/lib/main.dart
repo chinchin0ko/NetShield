@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'services/api_client.dart';
 import 'services/linux_vpn.dart';
@@ -37,12 +38,13 @@ class _ShieldHomeState extends State<ShieldHome> {
   final password = TextEditingController();
   final confirm = TextEditingController();
   bool register = false, loading = false, hidePassword = true;
-  bool vpnConnected = false, vpnLoading = false;
+  bool vpnConnected = false, vpnLoading = false, trafficBlocked = false;
   late final LinuxVpn vpn = widget.vpn ?? LinuxVpn(widget.api);
+  Timer? monitor;
   String? error, notice, token, signedInAs;
 
   @override
-  void dispose() { username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
+  void dispose() { monitor?.cancel(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
 
   Future<void> signIn() async {
     if (loading) return;
@@ -54,8 +56,20 @@ class _ShieldHomeState extends State<ShieldHome> {
     try {
       final result = await widget.api.login(username.text.trim(), password.text);
       final active = await vpn.isConnected();
+      final blocked = await vpn.isKillSwitchEnabled();
       if (!mounted) return;
-      setState(() { token = result; signedInAs = username.text.trim(); vpnConnected = active; password.clear(); });
+      setState(() { token = result; signedInAs = username.text.trim(); vpnConnected = active; trafficBlocked = blocked; password.clear(); });
+      monitor?.cancel();
+      monitor = Timer.periodic(const Duration(seconds: 4), (_) async {
+        if (vpnLoading || token == null) return;
+        try {
+          final active = await vpn.isConnected();
+          final blocked = await vpn.isKillSwitchEnabled();
+          if (mounted && !vpnLoading && (vpnConnected != active || trafficBlocked != blocked)) {
+            setState(() { vpnConnected = active; trafficBlocked = blocked; });
+          }
+        } catch (_) { /* Keep last known state if NetworkManager is unavailable. */ }
+      });
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
@@ -95,14 +109,15 @@ class _ShieldHomeState extends State<ShieldHome> {
     if (vpnLoading || token == null) return;
     setState(() { vpnLoading = true; error = null; });
     try {
-      if (vpnConnected) { await vpn.disconnect(); } else { await vpn.connect(token!); }
-      if (mounted) setState(() => vpnConnected = !vpnConnected);
+      if (vpnConnected || trafficBlocked) { await vpn.disconnect(); } else { await vpn.connect(token!); }
+      if (mounted) setState(() { vpnConnected = !(vpnConnected || trafficBlocked); trafficBlocked = vpnConnected; });
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo cambiar la conexión VPN.');
     } finally {
-      if (mounted) setState(() => vpnLoading = false);
+      final blocked = await vpn.isKillSwitchEnabled();
+      if (mounted) setState(() { vpnLoading = false; trafficBlocked = blocked; });
     }
   }
 
@@ -110,10 +125,54 @@ class _ShieldHomeState extends State<ShieldHome> {
     if (vpnLoading) return;
     setState(() { vpnLoading = true; error = null; });
     try {
-      if (vpnConnected) await vpn.disconnect();
-      if (mounted) setState(() { token = null; signedInAs = null; vpnConnected = false; username.clear(); });
+      if (vpnConnected || trafficBlocked) await vpn.disconnect();
+      monitor?.cancel();
+      if (mounted) setState(() { token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; username.clear(); });
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo desconectar la VPN.');
+    } finally {
+      if (mounted) setState(() => vpnLoading = false);
+    }
+  }
+
+  Future<void> manageDevices() async {
+    if (token == null || vpnLoading) return;
+    setState(() { vpnLoading = true; error = null; });
+    try {
+      final devices = await widget.api.vpnDevices(token!);
+      final localId = await vpn.deviceId();
+      if (!mounted) return;
+      final selected = await showDialog<String>(context: context, builder: (dialogContext) => AlertDialog(
+        title: const Text('Dispositivos VPN'),
+        content: SizedBox(width: 440, child: devices.isEmpty
+          ? const Text('Todavía no hay dispositivos registrados.')
+          : SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: devices.map((device) {
+              final id = device['device_id'] as String;
+              final current = id == localId;
+              final enabled = device['enabled'] == true;
+              return ListTile(title: Text(current ? 'Este dispositivo' : 'Dispositivo ${id.substring(0, 8)}'),
+                subtitle: Text(enabled ? 'Habilitado' : 'Revocado'),
+                trailing: enabled ? TextButton(onPressed: () => Navigator.pop(dialogContext, id), child: const Text('Revocar')) : null);
+            }).toList()))),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cerrar'))],
+      ));
+      if (selected == null || !mounted) return;
+      final confirmRevoke = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+        title: const Text('Revocar dispositivo'),
+        content: Text(selected == localId ? 'Este equipo dejará de poder conectarse con su identificador actual.' : 'Este dispositivo dejará de poder usar la VPN.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Revocar'))],
+      ));
+      if (confirmRevoke != true) return;
+      await widget.api.revokeVpnDevice(token!, selected);
+      if (selected == localId && vpnConnected) {
+        await vpn.disconnect();
+        if (mounted) setState(() => vpnConnected = false);
+      }
+      if (mounted) setState(() => error = 'Dispositivo revocado.');
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => error = 'No se pudieron consultar los dispositivos.');
     } finally {
       if (mounted) setState(() => vpnLoading = false);
     }
@@ -191,12 +250,13 @@ class _ShieldHomeState extends State<ShieldHome> {
     const SizedBox(height: 36),
     Center(child: Container(width: 156, height: 156, decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFeef1e5), Color(0xFFbdceb1), Color(0xFF90a98c)]), border: Border.all(color: Colors.white.withValues(alpha: .8), width: 2), boxShadow: [BoxShadow(color: deep.withValues(alpha: .15), blurRadius: 22, offset: const Offset(0, 10))]), child: const Icon(Icons.power_settings_new_rounded, size: 61, color: forest))),
     const SizedBox(height: 25),
-    Center(child: Text(vpnConnected ? 'Conectado' : 'Desconectado', style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
+    Center(child: Text(vpnConnected ? 'Conectado' : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
     const SizedBox(height: 8),
-    Center(child: Text(error ?? (vpnConnected ? 'Túnel de desarrollo activo.' : 'Conéctate para activar el túnel de desarrollo.'), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
+    Center(child: Text(error ?? (vpnConnected ? (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.') : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar el túnel de desarrollo.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
     const SizedBox(height: 30),
-    SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : 'Conectar'), style: const TextStyle(fontWeight: FontWeight.w800)))),
-    const SizedBox(height: 18), Center(child: TextButton.icon(onPressed: vpnLoading ? null : signOut, icon: const Icon(Icons.logout_rounded, size: 17), label: const Text('Cerrar sesión'), style: TextButton.styleFrom(foregroundColor: forest))),
+    SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
+    const SizedBox(height: 12), Center(child: TextButton.icon(onPressed: vpnLoading ? null : manageDevices, icon: const Icon(Icons.devices_rounded, size: 17), label: const Text('Administrar dispositivos'), style: TextButton.styleFrom(foregroundColor: forest))),
+    Center(child: TextButton.icon(onPressed: vpnLoading ? null : signOut, icon: const Icon(Icons.logout_rounded, size: 17), label: const Text('Cerrar sesión'), style: TextButton.styleFrom(foregroundColor: forest))),
   ]);
 
   Widget tab(String title, bool active, VoidCallback onTap) => Expanded(child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(12), child: AnimatedContainer(duration: const Duration(milliseconds: 180), padding: const EdgeInsets.symmetric(vertical: 12), decoration: BoxDecoration(color: active ? Colors.white : Colors.transparent, borderRadius: BorderRadius.circular(12), boxShadow: active ? [BoxShadow(color: deep.withValues(alpha: .07), blurRadius: 8, offset: const Offset(0, 3))] : []), child: Text(title, textAlign: TextAlign.center, style: TextStyle(color: active ? deep : const Color(0xFF84927f), fontSize: 12, fontWeight: FontWeight.w800)))));

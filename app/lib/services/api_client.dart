@@ -15,7 +15,38 @@ class ApiClient {
 
   final Uri baseUrl;
 
-  Future<String> vpnConfig(String token, String deviceId) async {
+  Future<dynamic> _authorized(String token, String method, String path) async {
+    final isLoopback = baseUrl.host == '127.0.0.1' || baseUrl.host == 'localhost' || baseUrl.host == '::1';
+    if (baseUrl.scheme != 'https' && !(baseUrl.scheme == 'http' && isLoopback)) throw const ApiException('La dirección de la API debe usar HTTPS.');
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client.openUrl(method, baseUrl.resolve(path));
+      request.followRedirects = false;
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      final response = await request.close().timeout(const Duration(seconds: 25));
+      final body = await utf8.decoder.bind(response).join();
+      if (response.statusCode == 401) throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
+      if (response.statusCode != 200 && response.statusCode != 204) throw const ApiException('No se pudo administrar el dispositivo.');
+      return body.isEmpty ? null : jsonDecode(body);
+    } on SocketException {
+      throw const ApiException('No se pudo conectar con la API. Comprueba el túnel de desarrollo.');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> vpnDevices(String token) async {
+    final result = await _authorized(token, 'GET', '/vpn/devices');
+    if (result is! Map || result['devices'] is! List) throw const ApiException('La lista de dispositivos es inválida.');
+    return (result['devices'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  Future<void> revokeVpnDevice(String token, String deviceId) async {
+    if (!RegExp(r'^[0-9a-f]{32}$').hasMatch(deviceId)) throw const ApiException('El dispositivo es inválido.');
+    await _authorized(token, 'POST', '/vpn/devices/$deviceId/revoke');
+  }
+
+  Future<String> vpnConfig(String token, String deviceId, String publicKey) async {
     final isLoopback = baseUrl.host == '127.0.0.1' || baseUrl.host == 'localhost' || baseUrl.host == '::1';
     if (baseUrl.scheme != 'https' && !(baseUrl.scheme == 'http' && isLoopback)) {
       throw const ApiException('La dirección de la API debe usar HTTPS.');
@@ -26,10 +57,11 @@ class ApiClient {
       request.followRedirects = false;
       request.headers.contentType = ContentType.json;
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      request.add(utf8.encode(jsonEncode({'device_id': deviceId})));
+      request.add(utf8.encode(jsonEncode({'device_id': deviceId, 'public_key': publicKey})));
       final response = await request.close().timeout(const Duration(seconds: 25));
       final body = await utf8.decoder.bind(response).join();
       if (response.statusCode == 401) throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
+      if (response.statusCode == 403) throw const ApiException('Este dispositivo fue revocado. Contacta al administrador.');
       if (response.statusCode != 200) throw const ApiException('No se pudo preparar la VPN.');
       final data = jsonDecode(body);
       if (data is! Map || data['config'] is! String) throw const ApiException('La configuración VPN es inválida.');
