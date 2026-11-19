@@ -1,0 +1,22 @@
+pkgname=netshield-vpn-dev
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='NetShield VPN development desktop client'
+arch=('x86_64')
+url='https://github.com/chinchin0ko/NetShield'
+license=('custom')
+depends=('gtk3' 'networkmanager' 'wireguard-tools' 'nftables' 'polkit' 'python' 'iputils' 'hicolor-icon-theme')
+source=('netshield-arch-input.tar.gz')
+sha256sums=('@SHA256@')
+options=('!strip')
+
+package() {
+  install -d "$pkgdir/opt/netshield" "$pkgdir/usr/bin" "$pkgdir/usr/lib/netshield"
+  cp -a "$srcdir/input/bundle/." "$pkgdir/opt/netshield/"
+  install -Dm755 "$srcdir/input/netshield-killswitch" "$pkgdir/usr/lib/netshield/netshield-killswitch"
+  install -Dm644 "$srcdir/input/netshield.policy" "$pkgdir/usr/share/polkit-1/actions/com.netshield.killswitch.packaged.policy"
+  install -Dm644 "$srcdir/input/netshield.desktop" "$pkgdir/usr/share/applications/netshield-vpn.desktop"
+  install -Dm644 "$srcdir/input/netshield.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/netshield.svg"
+  printf '#!/bin/sh\nexec /opt/netshield/netshield_app "$@"\n' > "$pkgdir/usr/bin/netshield-vpn"
+  chmod 755 "$pkgdir/usr/bin/netshield-vpn"
+}

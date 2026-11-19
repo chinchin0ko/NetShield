@@ -12,10 +12,13 @@ class LinuxVpn {
   Future<bool> isKillSwitchEnabled() => File('/run/netshield-lock/active').exists();
 
   Future<void> _switch(List<String> arguments) async {
-    if (!await File('/usr/local/sbin/netshield-killswitch').exists()) {
+    const packaged = '/usr/lib/netshield/netshield-killswitch';
+    const legacy = '/usr/local/sbin/netshield-killswitch';
+    final helper = await File(packaged).exists() ? packaged : legacy;
+    if (!await File(helper).exists()) {
       throw const ApiException('Falta instalar el bloqueo de tráfico de NetShield. Consulta las instrucciones de instalación.');
     }
-    final result = await Process.run('pkexec', ['/usr/local/sbin/netshield-killswitch', ...arguments]);
+    final result = await Process.run('pkexec', [helper, ...arguments]);
     if (result.exitCode != 0) throw const ApiException('No se pudo cambiar el bloqueo de tráfico. Revisa la autorización de administrador.');
   }
 

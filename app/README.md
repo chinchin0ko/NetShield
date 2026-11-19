@@ -1,12 +1,26 @@
 # NetShield — aplicación de escritorio
 
-Cliente de desarrollo en Flutter para Linux. Incluye registro, inicio de sesión y conexión WireGuard mediante NetworkManager. La API privada solicita la configuración al administrador wg-easy existente.
+Cliente de desarrollo en Flutter para Linux. Incluye inicio de sesión y conexión WireGuard mediante NetworkManager. El servidor administra los peers de WireGuard; el cliente no necesita SSH administrativo.
+
+## Paquete de prueba para Arch Linux x86_64
+
+`dist/netshield-vpn-dev-0.1.0-1-x86_64.pkg.tar.zst` se genera localmente con `./scripts/package-arch.sh` después de `flutter build linux --release`. El equipo de compilación necesita Flutter y `makepkg`; quien instala el paquete no necesita Flutter ni el código fuente. El paquete declara sus dependencias de Arch y se instala con:
+
+```bash
+sudo pacman -U ./dist/netshield-vpn-dev-0.1.0-1-x86_64.pkg.tar.zst
+```
+
+Abre **NetShield VPN** desde el menú o ejecuta `netshield-vpn`. Es necesario tener NetworkManager activo, un agente gráfico de polkit y una cuenta existente. El registro público sigue deshabilitado. Para retirar el paquete, desconecta primero la VPN y desactiva el bloqueo desde la aplicación; después ejecuta `sudo pacman -R netshield-vpn-dev`. Esto no elimina las claves privadas o el identificador guardados en `~/.local/share/netshield/`.
+
+Para crear una cuenta de prueba, el administrador ejecuta `API/scripts/crear-usuario-dev.sh` desde el repositorio en su máquina autorizada. El comando solicita usuario y contraseña de forma interactiva en la instancia API; la persona que usa el paquete no necesita acceso SSH. Comparte las credenciales mediante un canal seguro.
+
+Este paquete es una compilación de desarrollo para pruebas controladas: aún no está firmado y fue compilado en CachyOS, por lo que falta comprobarlo en una instalación limpia de Arch y establecer una compilación y firma para distribución. [Flutter requiere distribuir el directorio completo `bundle` y verificar las bibliotecas del sistema de destino](https://docs.flutter.dev/platform-integration/linux/building).
 
 ## Probar en el equipo de desarrollo
 
 En esta máquina abre **NetShield VPN** desde el menú de aplicaciones. La aplicación se conecta a `https://api.netshield.lat`; no necesita un túnel SSH ni una clave administrativa en el cliente. El registro público está deshabilitado durante esta etapa de desarrollo; se puede iniciar sesión con una cuenta existente.
 
-Para instalar el acceso directo en otra copia del proyecto, compila la aplicación y ejecuta `./scripts/install-desktop.sh` desde `app/`.
+Para el flujo anterior de desarrollo, puedes compilar la aplicación y ejecutar `./scripts/install-desktop.sh` desde `app/`; ese acceso directo depende de la ubicación del proyecto.
 
 Para consultar la contraseña de la cuenta de prueba una vez, puedes usar una terminal:
 
@@ -42,7 +56,7 @@ sudo install -o root -g root -m 755 linux/netshield/killswitch.py /usr/local/sbi
 sudo install -o root -g root -m 644 linux/netshield/com.netshield.killswitch.policy /usr/share/polkit-1/actions/com.netshield.killswitch.policy
 ```
 
-Al conectar, KDE puede pedir autorización de administrador. El bloqueo permanece si el túnel cae o la ventana se cierra. Para volver a permitir tráfico, pulsa **Desconectar** o **Desactivar bloqueo**. Si no puedes abrir la aplicación, ejecuta `pkexec /usr/local/sbin/netshield-killswitch disable`. El bloqueo se aplica mientras está activado; después de reiniciar el equipo no se activa automáticamente. En desarrollo se permiten al servidor VPN el puerto UDP 51820 y SSH TCP 22 para mantener el túnel de administración.
+Al conectar, KDE puede pedir autorización de administrador. El bloqueo permanece si el túnel cae o la ventana se cierra. Para volver a permitir tráfico, pulsa **Desconectar** o **Desactivar bloqueo**. Si instalaste el paquete y no puedes abrir la aplicación, ejecuta `pkexec /usr/lib/netshield/netshield-killswitch disable`. Para la instalación manual anterior, la ruta es `/usr/local/sbin/netshield-killswitch`. El bloqueo se aplica mientras está activado; después de reiniciar el equipo no se activa automáticamente. En desarrollo se permiten al servidor VPN el puerto UDP 51820 y SSH TCP 22 para mantener el túnel de administración.
 
 La aplicación permite listar y revocar dispositivos de la cuenta. Un dispositivo revocado no puede reinscribirse automáticamente con su mismo identificador. La revocación no invalida el token de usuario; si fue comprometido, también hay que desactivar la cuenta o cambiar las credenciales.
 
@@ -52,4 +66,4 @@ El registro de desarrollo requiere `NETSHIELD_DEV_REGISTRATION=1` en la API priv
 
 La estructura incluye proyectos iniciales de Android y Windows para trabajo futuro; esta versión solo se compiló y verificó en Linux.
 
-El acceso automático SSH usa las credenciales administrativas existentes solo en esta máquina de desarrollo. No es una distribución para usuarios finales: para producción se necesita una API HTTPS pública autenticada, sin distribuir claves SSH de administración.
+El acceso SSH opcional de desarrollo solo se activa mediante la configuración explícita de localhost; el paquete usa HTTPS por defecto y no incluye claves SSH administrativas.
