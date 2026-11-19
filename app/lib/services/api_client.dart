@@ -138,6 +138,9 @@ class ApiClient {
       if (response.statusCode == 401) {
         throw const ApiException('Usuario o contraseña incorrectos.');
       }
+      if (response.statusCode == 429) {
+        throw const ApiException('Demasiados intentos. Espera unos minutos antes de volver a intentarlo.');
+      }
       if (response.statusCode != 200) {
         throw const ApiException('La API no pudo iniciar sesión. Inténtalo de nuevo.');
       }

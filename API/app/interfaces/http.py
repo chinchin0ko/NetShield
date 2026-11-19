@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from app.application.auth import AuthService, AuthenticationError
+from app.application.auth import AuthService, AuthenticationError, LoginRateLimited
 from app.composition import get_auth_service, get_device_service
 from app.application.devices import DeviceService, InvalidDevice, DeviceAlreadyExists
 
@@ -51,11 +51,17 @@ def readiness(service: AuthService = Depends(get_auth_service)):
 
 
 @router.post("/auth/token")
-def login(credentials: Credentials, service: AuthService = Depends(get_auth_service)):
+def login(credentials: Credentials, response: Response, service: AuthService = Depends(get_auth_service)):
     try:
         token = service.login(credentials.username, credentials.password)
+    except LoginRateLimited as exc:
+        raise HTTPException(status_code=429, detail='Too many attempts', headers={'Retry-After': str(exc.retry_after), 'Cache-Control': 'no-store'}) from None
     except AuthenticationError:
         raise HTTPException(status_code=401, detail="Invalid credentials") from None
+    except (psycopg.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='Authentication unavailable') from None
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Pragma'] = 'no-cache'
     return {"access_token": token, "token_type": "bearer", "expires_in": 1800}
 
 

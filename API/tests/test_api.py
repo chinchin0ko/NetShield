@@ -64,11 +64,27 @@ def test_login_and_invalid_password(monkeypatch):
         assert client.post('/auth/token', json={'username': 'alice', 'password': 'wrong'}).status_code == 401
         result = client.post('/auth/token', json={'username': 'alice', 'password': 'correct horse battery staple'})
         assert result.status_code == 200
+        assert result.headers['cache-control'] == 'no-store'
         token = result.json()['access_token']
         assert client.get('/users/me', headers={'Authorization': f'Bearer {token}'}).json() == {'username': 'alice'}
         assert client.get('/users/me', headers={'Authorization': 'Bearer altered'}).status_code == 401
         users.user = User(1, 'alice', user.password_hash, False)
         assert client.get('/users/me', headers={'Authorization': f'Bearer {token}'}).status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_login_limit_returns_retry_after_without_checking_password():
+    class Limit:
+        def consume(self, username): return 120
+    class Users:
+        def by_username(self, username): raise AssertionError('must not check credentials')
+    app.dependency_overrides[get_auth_service] = lambda: AuthService(Users(), None, None, Limit())
+    try:
+        response = TestClient(app).post('/auth/token', json={'username': 'any-user', 'password': 'password'})
+        assert response.status_code == 429
+        assert response.headers['retry-after'] == '120'
+        assert response.headers['cache-control'] == 'no-store'
     finally:
         app.dependency_overrides.clear()
 

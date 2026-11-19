@@ -1,6 +1,6 @@
 # NetShield API
 
-Backend en desarrollo para una instancia privada. Incluye autenticación básica, registro de dispositivos y procesamiento inicial de alertas Suricata. No está listo para exponerse a internet: faltan límites de intentos, aprovisionamiento de WireGuard, transporte y entrega de alertas en vivo, e integración con Pi-hole.
+Backend en desarrollo para una instancia privada. Incluye autenticación, aprovisionamiento de WireGuard y procesamiento inicial de alertas Suricata. No está listo para exponerse a internet: faltan controles contra abuso del registro, límites por origen en el proxy, recuperación de cuentas, HTTPS público y otras medidas de seguridad.
 
 ## Contenido
 
@@ -27,13 +27,17 @@ python -m pytest -q
 
 Para conectarse a PostgreSQL, configure `NETSHIELD_DATABASE_URL` y `NETSHIELD_JWT_SECRET` como variables de entorno. Consulte `.env.example`; el archivo es una referencia y no se carga automáticamente. La conexión exige `sslmode=verify-full` y un certificado confiable mediante `sslrootcert`. Proporcione la contraseña de la base por un mecanismo seguro, como un archivo `PGPASSFILE` con permisos restrictivos. Nunca suba contraseñas, claves ni certificados privados al repositorio.
 
-Después de verificar el destino y tener respaldo, aplique una sola vez las migraciones `001_users.sql`, `002_devices.sql` y `003_security_alerts.sql`, en ese orden, y cree el primer usuario con `python -m app.create_user`. Para iniciar el servidor localmente:
+Después de verificar el destino y tener respaldo, aplique las migraciones de `migrations/` en orden numérico, una sola vez, incluida `004_login_attempts.sql`, y cree el primer usuario con `python -m app.create_user`. El rol de la API necesita `SELECT`, `INSERT`, `UPDATE` y `DELETE` en `login_attempt_windows`. Para iniciar el servidor localmente:
 
 ```bash
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 `GET /health/live` comprueba el proceso y `GET /health/ready` la conexión con la base. `POST /auth/token` recibe `username` y `password` en JSON; `GET /users/me` requiere el token Bearer resultante. Use HTTPS para transportar credenciales y tokens.
+
+El inicio de sesión permite hasta diez intentos por nombre de usuario en una ventana fija de cinco minutos, compartida entre los procesos de la API y almacenada en PostgreSQL. Tras el límite devuelve HTTP 429 con `Retry-After`. Los identificadores de las ventanas son HMAC, no nombres en claro. También se verifica un hash de relleno cuando el usuario no existe, para reducir diferencias de tiempo; no se garantiza que todos los tiempos sean idénticos. La respuesta con el token incluye `Cache-Control: no-store`.
+
+Este límite por cuenta cuenta también los intentos correctos y un tercero puede provocar una espera temporal para una cuenta conocida. Faltan límites por IP en un proxy confiable, recuperación de cuenta y protección contra creación masiva de registros. En el acceso actual por túnel SSH todos los clientes llegan a localhost, por lo que la IP observada allí no identifica de forma fiable al usuario. No habilite el registro público basándose solo en este control.
 
 
 ## Dispositivos y alertas

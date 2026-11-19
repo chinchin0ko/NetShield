@@ -10,6 +10,8 @@ from app.application.auth import AuthenticationError
 
 
 class Argon2Passwords:
+    # Public, non-credential hash: used only to equalize missing-user work.
+    _DUMMY_HASH = '$argon2id$v=19$m=65536,t=3,p=4$Re5XBVY7obWBphCvuhMIuQ$6kMD/hL1gVCHfBxcdnkKC12mGhP0rBS+Snaspe9oqRE'
     def __init__(self):
         self.hasher = PasswordHasher()
 
@@ -21,6 +23,9 @@ class Argon2Passwords:
             return self.hasher.verify(password_hash, password)
         except (VerificationError, InvalidHashError):
             return False
+
+    def verify_dummy(self, password: str) -> None:
+        self.verify(self._DUMMY_HASH, password)
 
 
 class JwtTokens:

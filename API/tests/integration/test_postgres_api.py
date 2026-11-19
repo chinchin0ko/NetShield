@@ -64,3 +64,34 @@ def test_full_flow_against_postgresql(lab_database):
     assert client.get('/devices').status_code == 401
     assert client.delete('/devices/' + str(created.json()['id']), headers=headers).status_code == 204
     assert client.get('/devices', headers=headers).json() == []
+
+
+def test_login_limit_is_atomic_and_expires(lab_database):
+    from concurrent.futures import ThreadPoolExecutor
+    from app.infrastructure.login_limiter import PostgresLoginLimiter
+    from app.infrastructure.postgres import database
+    limiter = PostgresLoginLimiter()
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        results = list(executor.map(lambda _: limiter.consume('limiter-user'), range(12)))
+    assert sum(value == 0 for value in results) == 10
+    assert all(value > 0 for value in results if value != 0)
+    with database() as conn:
+        stored = conn.execute('SELECT subject_hash FROM login_attempt_windows').fetchall()
+        assert len(stored) == 1 and stored[0][0] != 'limiter-user'
+        conn.execute("UPDATE login_attempt_windows SET window_started = now() - interval '6 minutes'")
+    assert limiter.consume('limiter-user') == 0
+
+
+def test_http_login_throttle_and_recovery(lab_database):
+    from app.infrastructure.postgres import database
+    client = TestClient(app)
+    data = {'username': 'integration-user', 'password': 'wrong-password'}
+    for _ in range(10):
+        assert client.post('/auth/token', json=data).status_code == 401
+    limited = client.post('/auth/token', json=data)
+    assert limited.status_code == 429
+    assert 1 <= int(limited.headers['retry-after']) <= 300
+    with database() as conn:
+        conn.execute("UPDATE login_attempt_windows SET window_started = now() - interval '6 minutes'")
+    data['password'] = 'test passphrase 1234'
+    assert client.post('/auth/token', json=data).status_code == 200
