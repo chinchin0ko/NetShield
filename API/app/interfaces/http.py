@@ -26,7 +26,7 @@ class NewAccount(BaseModel):
 
 @router.post('/auth/register', status_code=201)
 def register_account(data: NewAccount, service: AuthService = Depends(get_auth_service)):
-    # Explicit opt-in for the private development environment only.
+    # Explicit opt-in for the development environment.
     if os.environ.get('NETSHIELD_DEV_REGISTRATION') != '1':
         raise HTTPException(status_code=404, detail='Not found')
     try:

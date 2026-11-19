@@ -4,13 +4,13 @@ Cliente de desarrollo en Flutter para Linux. Incluye inicio de sesión y conexi�
 
 ## Paquete de prueba para Arch Linux x86_64
 
-`dist/netshield-vpn-dev-0.1.0-1-x86_64.pkg.tar.zst` se genera localmente con `./scripts/package-arch.sh` después de `flutter build linux --release`. El equipo de compilación necesita Flutter y `makepkg`; quien instala el paquete no necesita Flutter ni el código fuente. El paquete declara sus dependencias de Arch y se instala con:
+`dist/netshield-vpn-dev-0.1.0-2-x86_64.pkg.tar.zst` se genera localmente con `./scripts/package-arch.sh` después de `flutter build linux --release`. El equipo de compilación necesita Flutter y `makepkg`; quien instala el paquete no necesita Flutter ni el código fuente. El paquete declara sus dependencias de Arch y se instala con:
 
 ```bash
-sudo pacman -U ./dist/netshield-vpn-dev-0.1.0-1-x86_64.pkg.tar.zst
+sudo pacman -U ./dist/netshield-vpn-dev-0.1.0-2-x86_64.pkg.tar.zst
 ```
 
-Abre **NetShield VPN** desde el menú o ejecuta `netshield-vpn`. Es necesario tener NetworkManager activo, un agente gráfico de polkit y una cuenta existente. El registro público sigue deshabilitado. Para retirar el paquete, desconecta primero la VPN y desactiva el bloqueo desde la aplicación; después ejecuta `sudo pacman -R netshield-vpn-dev`. Esto no elimina las claves privadas o el identificador guardados en `~/.local/share/netshield/`.
+Abre **NetShield VPN** desde el menú o ejecuta `netshield-vpn`. Es necesario tener NetworkManager activo y un agente gráfico de polkit. Puedes crear una cuenta desde la aplicación. Para retirar el paquete, desconecta primero la VPN y desactiva el bloqueo desde la aplicación; después ejecuta `sudo pacman -R netshield-vpn-dev`. Esto no elimina las claves privadas o el identificador guardados en `~/.local/share/netshield/`.
 
 Para crear una cuenta de prueba, el administrador ejecuta `API/scripts/crear-usuario-dev.sh` desde el repositorio en su máquina autorizada. El comando solicita usuario y contraseña de forma interactiva en la instancia API; la persona que usa el paquete no necesita acceso SSH. Comparte las credenciales mediante un canal seguro.
 
@@ -18,7 +18,7 @@ Este paquete es una compilación de desarrollo para pruebas controladas: aún no
 
 ## Probar en el equipo de desarrollo
 
-En esta máquina abre **NetShield VPN** desde el menú de aplicaciones. La aplicación se conecta a `https://api.netshield.lat`; no necesita un túnel SSH ni una clave administrativa en el cliente. El registro público está deshabilitado durante esta etapa de desarrollo; se puede iniciar sesión con una cuenta existente.
+En esta máquina abre **NetShield VPN** desde el menú de aplicaciones. La aplicación se conecta a `https://api.netshield.lat`; no necesita un túnel SSH ni una clave administrativa en el cliente. El registro público está habilitado para pruebas de desarrollo.
 
 Para el flujo anterior de desarrollo, puedes compilar la aplicación y ejecutar `./scripts/install-desktop.sh` desde `app/`; ese acceso directo depende de la ubicación del proyecto.
 
@@ -62,7 +62,7 @@ La aplicación permite listar y revocar dispositivos de la cuenta. Un dispositiv
 
 En las pruebas de este equipo, el DNS configurado de la VPN resolvió consultas, los intentos de salida directa por Wi-Fi IPv4/IPv6 quedaron bloqueados y el bloqueo resistió la caída de WireGuard. IPv6 se bloquea mientras la VPN está activa porque el servidor aún no ofrece salida IPv6; no proporciona conectividad IPv6 a través de la VPN. Estas pruebas no son una auditoría ni garantizan ausencia de fugas en otros equipos o configuraciones. La integración sigue siendo de desarrollo y no debe exponerse a Internet como producción.
 
-El registro de desarrollo requiere `NETSHIELD_DEV_REGISTRATION=1` en la API privada. No debe habilitarse en una API pública: aún faltan controles contra abuso y otros requisitos de producción.
+El registro de desarrollo está habilitado mediante `NETSHIELD_DEV_REGISTRATION=1`. Esta versión pública es experimental y aún le faltan controles contra abuso y otros requisitos de producción.
 
 La estructura incluye proyectos iniciales de Android y Windows para trabajo futuro; esta versión solo se compiló y verificó en Linux.
 

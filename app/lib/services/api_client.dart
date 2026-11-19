@@ -112,6 +112,7 @@ class ApiClient {
       final response = await request.close().timeout(const Duration(seconds: 10));
       await response.drain<void>();
       if (response.statusCode == 409) throw const ApiException('Ese usuario ya está en uso.');
+      if (response.statusCode == 429) throw const ApiException('Demasiados registros. Espera un minuto antes de volver a intentarlo.');
       if (response.statusCode == 404) throw const ApiException('El registro no está habilitado en el servidor.');
       if (response.statusCode != 201) throw const ApiException('No se pudo crear la cuenta.');
     } on SocketException {
