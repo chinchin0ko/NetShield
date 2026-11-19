@@ -12,9 +12,9 @@ class ApiClient {
   ApiClient({String? baseUrl, DevTunnel? tunnel})
     : baseUrl = Uri.parse(baseUrl ?? const String.fromEnvironment(
         'NETSHIELD_API_URL',
-        defaultValue: 'http://127.0.0.1:18000',
+        defaultValue: 'https://api.netshield.lat',
       )),
-      _tunnel = tunnel ?? (baseUrl == null && const String.fromEnvironment('NETSHIELD_API_URL', defaultValue: 'http://127.0.0.1:18000') == 'http://127.0.0.1:18000' ? DevTunnel() : null);
+      _tunnel = tunnel ?? (baseUrl == null && const String.fromEnvironment('NETSHIELD_API_URL', defaultValue: 'https://api.netshield.lat') == 'http://127.0.0.1:18000' ? DevTunnel() : null);
 
   final Uri baseUrl;
   final DevTunnel? _tunnel;

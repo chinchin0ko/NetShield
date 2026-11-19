@@ -3,6 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:netshield_app/services/api_client.dart';
 
 void main() {
+  test('uses the public HTTPS API by default', () {
+    final api = ApiClient();
+    expect(api.baseUrl.toString(), 'https://api.netshield.lat');
+    api.close();
+  });
+
   test('login explains a rate limit response', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((request) async {

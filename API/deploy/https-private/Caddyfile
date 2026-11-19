@@ -1,0 +1,25 @@
+api.netshield.lat {
+    header {
+        Cache-Control "no-store"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+    }
+    request_body {
+        max_size 16KB
+    }
+    @api path /auth/token /users/me /vpn/config /vpn/devices /vpn/devices/*/revoke
+    handle @api {
+        reverse_proxy https://10.0.0.250:18443 {
+            header_up X-NetShield-Client-IP {http.request.remote.host}
+            transport http {
+                tls_trust_pool file /pki/ca.crt
+                tls_client_auth /pki/client.crt /pki/client.key
+                dial_timeout 5s
+                response_header_timeout 30s
+            }
+        }
+    }
+    handle {
+        respond "Not found" 404
+    }
+}

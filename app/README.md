@@ -4,7 +4,7 @@ Cliente de desarrollo en Flutter para Linux. Incluye registro, inicio de sesión
 
 ## Probar en el equipo de desarrollo
 
-En esta máquina abre **NetShield VPN** desde el menú de aplicaciones. La aplicación abre automáticamente su propio acceso SSH a la API al iniciar sesión o registrarse y lo cierra al salir. No hace falta abrir una terminal para crear el túnel. Requiere `ssh`, `python3`, la clave de desarrollo en `~/Projects/SSH/UPVPN/ssh-key-2026-09-17.key` y las huellas SSH previamente verificadas en `~/.ssh/known_hosts`. No se incluye ni distribuye la clave privada.
+En esta máquina abre **NetShield VPN** desde el menú de aplicaciones. La aplicación se conecta a `https://api.netshield.lat`; no necesita un túnel SSH ni una clave administrativa en el cliente. El registro público está deshabilitado durante esta etapa de desarrollo; se puede iniciar sesión con una cuenta existente.
 
 Para instalar el acceso directo en otra copia del proyecto, compila la aplicación y ejecuta `./scripts/install-desktop.sh` desde `app/`.
 
@@ -29,7 +29,7 @@ flutter pub get
 flutter run -d linux
 ```
 
-Por defecto crea un túnel privado de desarrollo en un puerto local temporal. Para otra API puede configurarse `--dart-define=NETSHIELD_API_URL=https://...`; HTTP solo se permite en localhost. El token se conserva únicamente en memoria durante la sesión.
+Para otra API puede configurarse `--dart-define=NETSHIELD_API_URL=https://...`; HTTP solo se permite en localhost. El túnel SSH anterior queda disponible explícitamente para desarrollo mediante `--dart-define=NETSHIELD_API_URL=http://127.0.0.1:18000`. El token se conserva únicamente en memoria durante la sesión.
 
 En la pantalla principal, pulsa **Conectar**. La aplicación importa un perfil WireGuard en NetworkManager y comprueba que responda la puerta de enlace de la VPN. Pulsa **Desconectar** para eliminar el perfil local y recuperar la ruta anterior. Al cerrar sesión también se desconecta. Si cierras la ventana sin desconectar, el perfil puede continuar activo; al volver a iniciar sesión la aplicación consulta su estado en NetworkManager. Necesita `nmcli`, `ping` y autorización de NetworkManager.
 
