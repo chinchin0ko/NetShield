@@ -54,6 +54,9 @@ def main(argv):
  chain output {{
   type filter hook output priority filter; policy drop;
   oifname "lo" accept
+  # The VPN currently has no IPv6 egress. Reject locally so applications can
+  # retry IPv4 promptly; no IPv6 packet may leave through any interface.
+  meta nfproto ipv6 reject with icmpv6 type no-route
   oifname "{interface}" accept
   ip daddr {endpoint} udp dport 51820 accept
  }}
