@@ -76,6 +76,15 @@ def main(argv):
         if not restoring:
             (PERSIST / 'active.json').unlink(missing_ok=True)
         raise RuntimeError('failed to install rules')
+    # Existing IPv6 TCP sessions bound to the physical network cannot migrate
+    # to IPv4. Closing them after the lock is installed lets their applications
+    # reconnect, while loopback sessions are retained. This is best-effort.
+    try:
+        subprocess.run(['/usr/bin/ss', '-K', '-6', '-t', 'state', 'connected',
+                        'not ( dst [::1] )'], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=5, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 if __name__ == '__main__':

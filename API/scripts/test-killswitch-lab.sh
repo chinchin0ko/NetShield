@@ -2,6 +2,7 @@
 # Disposable namespaces only; never changes the host firewall or host routes.
 set -euo pipefail
 for command in unshare nsenter ip wg ping nft; do command -v "$command" >/dev/null || { echo "Falta $command" >&2; exit 1; }; done
+export NETSHIELD_SOCKET_LAB="$(realpath "$(dirname "$0")/../tests/kill_switch_socket_lab.py")"
 export NETSHIELD_KILLSWITCH_TEST_HELPER="$(realpath "$(dirname "$0")/../../app/linux/netshield/killswitch.py")"
 exec unshare --user --map-root-user --mount --net bash -c '
 set -euo pipefail
@@ -46,7 +47,18 @@ nsenter -t "$a" -n ip -6 route add 2001:db8::/32 dev ns123456789abc
 nsenter -t "$b" -n ip link set ns123456789abc up
 nsenter -t "$a" -n ping -4 -c 1 -W 2 192.0.2.2 >/dev/null
 nsenter -t "$a" -n ping -6 -c 1 -W 2 fd42::2 >/dev/null
+# Establish one external IPv6 connection and one loopback connection before locking.
+nsenter -t "$b" -n python3 "$NETSHIELD_SOCKET_LAB" server "$workdir" &
+nsenter -t "$a" -n python3 "$NETSHIELD_SOCKET_LAB" loopback "$workdir" &
+for n in {1..30}; do [[ -e "$workdir/server-ready" && -e "$workdir/loopback-ready" ]] && break; sleep .1; done
+[[ -e "$workdir/server-ready" && -e "$workdir/loopback-ready" ]]
+nsenter -t "$a" -n python3 "$NETSHIELD_SOCKET_LAB" client "$workdir" &
+for n in {1..30}; do [[ -e "$workdir/client-ready" ]] && break; sleep .1; done
+[[ -e "$workdir/client-ready" ]]
 nsenter -t "$a" -n python3 "$NETSHIELD_KILLSWITCH_TEST_HELPER" enable ns123456789abc 192.0.2.2
+for n in {1..40}; do [[ -e "$workdir/client-closed" && -e "$workdir/loopback-intact" ]] && break; sleep .1; done
+[[ -e "$workdir/client-closed" && -e "$workdir/loopback-intact" ]] || { echo "Error: reconexión IPv6 o loopback" >&2; ls "$workdir" >&2;  exit 1; }
+echo "OK: conexión IPv6 externa cerrada, loopback conservado"
 nsenter -t "$a" -n ping -4 -c 1 -W 3 10.200.200.2 >/dev/null
 echo "OK: el tráfico por WireGuard funciona con el bloqueo activo"
 # A rejected IPv6 connection must fail promptly so dual-stack apps can retry IPv4.
