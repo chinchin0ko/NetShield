@@ -17,3 +17,9 @@ Para una implementación por cuenta se necesita, como mínimo:
 5. Pruebas con tráfico sintético por un túnel real aislado: detección, reenvío autenticado, IP reutilizada, reintento y deduplicación, desconexión y reinicio, y ausencia de datos de otra cuenta. Probar también rotación del EVE y retrasos de la cola.
 
 Una firma IDS es un indicador, no prueba concluyente de infección. HTTPS cifrado y DNS cifrado limitan lo que el servidor puede observar. La detección de dominios peligrosos requiere verificar además qué consultas recibe Pi-hole y sus listas; una conexión a un sitio y un dispositivo infectado no son equivalentes.
+
+## Avance de laboratorio: historial y captura aislada
+
+La migración `005_vpn_address_assignments.sql` define intervalos de propiedad y usa una restricción GiST de exclusión para impedir asignaciones de una misma IP con intervalos solapados, incluso con transacciones concurrentes. `PostgresAssignments.find_at` consulta los intervalos aplicables a un instante. Se probó con PostgreSQL aislado, incluidas escrituras concurrentes y reutilización de IP. **No se ha aplicado la migración a la instancia real ni conectado a provisión o revocación**: se requiere diseñar reconciliación y estados seguros ante fallos entre WireGuard y PostgreSQL; una consulta de estado actual no reconstruye el pasado.
+
+`scripts/test-suricata-prenat-lab.sh` crea dos espacios de red y una interfaz virtual temporales, ejecuta una instancia independiente de Suricata con una regla sintética y verifica que el evento incluya la IP privada de origen. No observa la interfaz de producción ni reproduce todavía un túnel WireGuard real. No prueba cobertura de amenazas. Antes de instalar un sensor real en el espacio de red de wg-easy se deben verificar arranque y ciclo de vida del contenedor, permisos mínimos, consumo de memoria, pérdida de paquetes y recuperación segura.

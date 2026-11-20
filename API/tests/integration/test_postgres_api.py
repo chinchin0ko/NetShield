@@ -95,3 +95,34 @@ def test_http_login_throttle_and_recovery(lab_database):
         conn.execute("UPDATE login_attempt_windows SET window_started = now() - interval '6 minutes'")
     data['password'] = 'test passphrase 1234'
     assert client.post('/auth/token', json=data).status_code == 200
+
+
+def test_assignment_history_rejects_overlaps_and_resolves_reused_addresses(lab_database):
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import datetime, timedelta, timezone
+    from ipaddress import IPv4Address
+    from app.infrastructure.assignments import PostgresAssignments
+    from app.infrastructure.postgres import database
+
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    def insert(owner, device):
+        try:
+            with database() as conn:
+                conn.execute('INSERT INTO vpn_address_assignments '
+                             '(address, user_id, device_id, valid_from) VALUES (%s, %s, %s, %s)',
+                             ('10.8.0.2', owner, device * 32, now))
+            return True
+        except psycopg.errors.ExclusionViolation:
+            return False
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(lambda pair: insert(*pair), [(1, 'a'), (2, 'b')]))
+    assert sorted(outcomes) == [False, True]
+    with database() as conn:
+        conn.execute('UPDATE vpn_address_assignments SET valid_until = %s', (now + timedelta(hours=1),))
+        conn.execute('INSERT INTO vpn_address_assignments '
+                     '(address, user_id, device_id, valid_from) VALUES (%s, %s, %s, %s)',
+                     ('10.8.0.2', 2, 'c' * 32, now + timedelta(hours=1)))
+    store = PostgresAssignments()
+    assert len(store.find_at(IPv4Address('10.8.0.2'), now)) == 1
+    assert store.find_at(IPv4Address('10.8.0.2'), now + timedelta(hours=1))[0].device_id == 'c' * 32
+    assert store.find_at(IPv4Address('10.8.0.2'), now - timedelta(seconds=1)) == []
