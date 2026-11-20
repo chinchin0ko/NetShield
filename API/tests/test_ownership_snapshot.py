@@ -56,3 +56,15 @@ def test_bridge_coordinated_revocation_returns_snapshot_after_disable(monkeypatc
     monkeypatch.setattr(bridge.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(request.encode())))
     bridge.main()
     assert json.loads(capsys.readouterr().out) == {'found': True, 'ownership_snapshot': []}
+
+
+def test_bridge_enforcement_rejects_uncoordinated_mutation(monkeypatch):
+    import io
+    import json
+    from types import SimpleNamespace
+    from controller import wg_easy_bridge as bridge
+    request = json.dumps({'op': 'revoke', 'user_id': 1, 'device_id': 'a' * 32}) + '\n'
+    monkeypatch.setattr(bridge.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(request.encode())))
+    monkeypatch.setattr(bridge.os.path, 'exists', lambda path: True)
+    with pytest.raises(ValueError, match='coordination required'):
+        bridge.main()

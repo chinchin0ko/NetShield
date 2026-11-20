@@ -90,20 +90,24 @@ def main():
     if not isinstance(data, dict) or type(data.get('user_id')) is not int or not 0 < data['user_id'] < 2**63:
         raise ValueError('invalid request')
     op = data.get('op', 'provision')
-    expected = {'op', 'user_id'} if op in {'list', 'usage'} else {'op', 'user_id', 'device_id'}
+    expected = {'op', 'user_id'} if op in {'list', 'usage', 'snapshot'} else {'op', 'user_id', 'device_id'}
     coordinated = data.get('history') is True
+    # Once enabled, the restricted SSH key cannot mutate peers without history.
+    # Root and wg-easy administrators remain privileged out-of-band paths.
+    if op in {'provision', 'revoke'} and os.path.exists('/etc/netshield/require-assignment-history') and not coordinated:
+        raise ValueError('assignment coordination required')
     if 'history' in data:
-        if not coordinated or op not in {'provision', 'revoke'}:
+        if not coordinated or op not in {'provision', 'revoke', 'snapshot'}:
             raise ValueError('invalid history request')
         expected.add('history')
     if op == 'provision' and 'public_key' in data:
         expected.add('public_key')
     if op == 'provision' and 'op' not in data:
         expected.remove('op')
-    if op not in {'provision', 'list', 'usage', 'revoke'} or set(data) != expected:
+    if op not in {'provision', 'list', 'usage', 'revoke', 'snapshot'} or set(data) != expected:
         raise ValueError('invalid operation')
     device = data.get('device_id')
-    if op not in {'list', 'usage'} and (not isinstance(device, str) or not DEVICE.fullmatch(device)):
+    if op not in {'list', 'usage', 'snapshot'} and (not isinstance(device, str) or not DEVICE.fullmatch(device)):
         raise ValueError('invalid device')
     public_key = data.get('public_key')
     if public_key is not None:
@@ -134,6 +138,11 @@ def main():
                                          check=True, capture_output=True, text=True, timeout=5)
                 payload['ownership_snapshot'] = ownership_snapshot(current, allowed.stdout)
             sys.stdout.write(json.dumps(payload) + '\n')
+        if op == 'snapshot':
+            if not coordinated:
+                raise ValueError('history required')
+            emit({'ok': True})
+            return
         if op == 'list':
             devices = [{'device_id': c['name'][len(prefix):], 'enabled': c['enabled'], 'created_at': c['createdAt']} for c in clients
                        if c.get('name', '').startswith(prefix) and DEVICE.fullmatch(c['name'][len(prefix):])]

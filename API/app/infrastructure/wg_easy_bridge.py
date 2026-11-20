@@ -22,7 +22,7 @@ class DeviceLimitReached(Exception):
 
 
 def _request(user_id: int, operation: str, device_id: str | None = None, public_key: str | None = None, history: bool = False) -> dict:
-    if operation not in {'provision', 'revoke', 'list', 'usage'} or (device_id is not None and not re.fullmatch(r'[0-9a-f]{32}', device_id)):
+    if operation not in {'provision', 'revoke', 'list', 'usage', 'snapshot'} or (device_id is not None and not re.fullmatch(r'[0-9a-f]{32}', device_id)):
         raise ValueError('invalid request')
     key = os.environ.get('NETSHIELD_WG_BRIDGE_KEY')
     host = os.environ.get('NETSHIELD_WG_BRIDGE_HOST')
