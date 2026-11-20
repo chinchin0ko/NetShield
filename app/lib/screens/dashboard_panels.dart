@@ -95,10 +95,24 @@ class _UsageCard extends StatelessWidget {
 }
 
 class AlertsPanel extends StatelessWidget {
-  const AlertsPanel({super.key});
+  const AlertsPanel({super.key, required this.alerts, required this.loading, required this.error, required this.onTest, required this.onRefresh});
+  final List<Map<String, dynamic>>? alerts;
+  final bool loading;
+  final String? error;
+  final VoidCallback onTest, onRefresh;
   @override
-  Widget build(BuildContext context) => const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    PanelHeading('CENTRO DE SEGURIDAD', 'Alertas y amenazas', 'Un espacio para consultar los eventos de tu conexión.'),
-    SizedBox(height: 25), SoftCard(child: Column(children: [Icon(Icons.radar_rounded, color: Color(0xff8ea58b), size: 42), SizedBox(height: 14), Text('Alertas personales en preparación', textAlign: TextAlign.center, style: TextStyle(color: _ink, fontSize: 16, fontWeight: FontWeight.w800)), SizedBox(height: 8), Text('Aún estamos preparando la asociación segura de los eventos con cada cuenta. Este panel todavía no muestra detecciones.', textAlign: TextAlign.center, style: TextStyle(color: _muted, fontSize: 12, height: 1.45))])),
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    const PanelHeading('CENTRO DE SEGURIDAD', 'Alertas y amenazas', 'Consulta las alertas asociadas a tu cuenta.'),
+    const SizedBox(height: 20),
+    const SoftCard(child: Text('La detección real aún no está activa. Puedes generar una alerta simulada para probar el panel.', style: TextStyle(color: _muted, fontSize: 12, height: 1.4))),
+    const SizedBox(height: 12),
+    Wrap(spacing: 8, children: [FilledButton(onPressed: loading ? null : onTest, child: const Text('Generar alerta de prueba')), TextButton(onPressed: loading ? null : onRefresh, child: const Text('Actualizar'))]),
+    if (loading) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
+    if (error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text(error!, style: const TextStyle(color: _muted, fontSize: 12))),
+    if (!loading && alerts != null && alerts!.isEmpty) const SoftCard(child: Text('Aún no hay alertas guardadas.', style: TextStyle(color: _muted))),
+    if (alerts != null) ...alerts!.map((item) => Padding(padding: const EdgeInsets.only(top: 8), child: SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(item['signature'] as String, style: const TextStyle(color: _ink, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), Text('Dispositivo ${(item['device_id'] as String).substring(0, 8)} · ${item['occurred_at']}', style: const TextStyle(color: _muted, fontSize: 12)),
+    ])))),
   ]);
 }

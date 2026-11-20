@@ -54,7 +54,7 @@ class ApiClient {
       final response = await request.close().timeout(const Duration(seconds: 25));
       final body = await utf8.decoder.bind(response).join();
       if (response.statusCode == 401) throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
-      if (response.statusCode != 200 && response.statusCode != 204) throw const ApiException('No se pudo administrar el dispositivo.');
+      if (response.statusCode != 200 && response.statusCode != 201 && response.statusCode != 204) throw const ApiException('No se pudo administrar el dispositivo.');
       return body.isEmpty ? null : jsonDecode(body);
     } on SocketException {
       throw _connectionError();
@@ -88,6 +88,25 @@ class ApiClient {
       devices.add(VpnDeviceUsage(item['device_id'] as String, upload as int?, download as int?));
     }
     return devices;
+  }
+
+  Future<List<Map<String, dynamic>>> securityAlerts(String token) async {
+    final result = await _authorized(token, 'GET', '/security/alerts');
+    if (result is! Map || result['alerts'] is! List || result['monitoring'] != 'not_active') {
+      throw const ApiException('No se pudieron consultar las alertas.');
+    }
+    final alerts = <Map<String, dynamic>>[];
+    for (final item in result['alerts'] as List) {
+      if (item is! Map || item['device_id'] is! String || !RegExp(r'^[0-9a-f]{32}$').hasMatch(item['device_id'] as String) || item['occurred_at'] is! String || item['signature'] is! String || item['severity'] is! int) {
+        throw const ApiException('Los datos de alertas son inválidos.');
+      }
+      alerts.add(Map<String, dynamic>.from(item));
+    }
+    return alerts;
+  }
+
+  Future<void> createTestAlert(String token) async {
+    await _authorized(token, 'POST', '/security/alerts/test');
   }
 
   Future<void> revokeVpnDevice(String token, String deviceId) async {

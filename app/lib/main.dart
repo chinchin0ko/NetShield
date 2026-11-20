@@ -47,6 +47,9 @@ class _ShieldHomeState extends State<ShieldHome> {
   bool serverUsageUnavailable = false;
   DateTime? serverUsageRequestedAt;
   bool usageLoading = false;
+  bool alertsLoading = false;
+  List<Map<String, dynamic>>? alerts;
+  String? alertsError;
   late final LinuxVpn vpn = widget.vpn ?? LinuxVpn(widget.api);
   Timer? monitor;
   String? error, notice, token, signedInAs;
@@ -134,6 +137,35 @@ class _ShieldHomeState extends State<ShieldHome> {
 
   void switchMode(bool value) => setState(() { register = value; error = null; notice = null; password.clear(); confirm.clear(); });
 
+  Future<void> refreshAlerts() async {
+    if (alertsLoading || token == null) return;
+    final current = token!;
+    setState(() { alertsLoading = true; alertsError = null; });
+    try {
+      final result = await widget.api.securityAlerts(current);
+      if (mounted && token == current) setState(() => alerts = result);
+    } catch (_) {
+      if (mounted && token == current) setState(() { alerts = null; alertsError = 'No se pudieron consultar las alertas.'; });
+    } finally {
+      if (mounted && token == current) setState(() => alertsLoading = false);
+    }
+  }
+
+  Future<void> createTestAlert() async {
+    if (alertsLoading || token == null) return;
+    final current = token!;
+    setState(() { alertsLoading = true; alertsError = null; });
+    try {
+      await widget.api.createTestAlert(current);
+      final result = await widget.api.securityAlerts(current);
+      if (mounted && token == current) setState(() => alerts = result);
+    } catch (_) {
+      if (mounted && token == current) setState(() => alertsError = 'No se pudo crear la prueba. Necesitas un dispositivo VPN habilitado; espera si alcanzaste el límite.');
+    } finally {
+      if (mounted && token == current) setState(() => alertsLoading = false);
+    }
+  }
+
   Future<void> refreshUsage() async {
     if (usageLoading || token == null) return;
     final currentToken = token!;
@@ -162,6 +194,7 @@ class _ShieldHomeState extends State<ShieldHome> {
   void selectPage(int value) {
     setState(() { page = value; error = null; });
     if (value == 2) refreshUsage();
+    if (value == 3) refreshAlerts();
   }
 
   Future<void> changeKillSwitch(bool enabled) async {
@@ -215,7 +248,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     try {
       if (vpnConnected || trafficBlocked) await vpn.disconnect();
       monitor?.cancel();
-      if (mounted) setState(() { token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; serverUsageRequestedAt = null; username.clear(); });
+      if (mounted) setState(() { token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; username.clear(); });
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo desconectar la VPN.');
     } finally {
@@ -345,7 +378,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     AnimatedSwitcher(duration: const Duration(milliseconds: 220), child: KeyedSubtree(key: ValueKey(page), child: switch (page) {
       1 => SettingsPanel(connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
       2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable),
-      3 => const AlertsPanel(),
+      3 => AlertsPanel(alerts: alerts, loading: alertsLoading, error: alertsError, onTest: createTestAlert, onRefresh: refreshAlerts),
       _ => homePanel(),
     })),
     if (page != 0 && error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13))],

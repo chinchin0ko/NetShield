@@ -1,6 +1,6 @@
 pkgname=netshield-vpn-dev
 pkgver=0.1.0
-pkgrel=6
+pkgrel=7
 install=netshield.install
 pkgdesc='NetShield VPN development desktop client'
 arch=('x86_64')

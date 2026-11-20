@@ -181,3 +181,26 @@ def test_personal_alerts_isolate_accounts_and_deduplicate(lab_database):
     assert not ingest_personal_alert(json.dumps(alert), PostgresAssignments(), repo, evidence_trusted=True)
     assert len(repo.list_for_user(1)) == 1
     assert repo.list_for_user(2) == []
+
+
+def test_alert_test_endpoint_is_scoped_and_limited(lab_database, monkeypatch):
+    from datetime import datetime, timezone
+    from app.infrastructure.postgres import database
+    monkeypatch.setenv('NETSHIELD_DEV_ALERT_TEST', '1')
+    with database() as conn:
+        conn.execute('INSERT INTO vpn_address_assignments (address,user_id,device_id,valid_from) VALUES (%s,%s,%s,%s)',
+                     ('10.8.0.2', 1, 'a'*32, datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    client = TestClient(app)
+    def login(username, password):
+        token = client.post('/auth/token', json={'username': username, 'password': password}).json()['access_token']
+        return {'Authorization': 'Bearer ' + token}
+    first = login('integration-user', 'test passphrase 1234')
+    second = login('second-user', 'second passphrase 1234')
+    assert client.get('/security/alerts').status_code == 401
+    assert client.post('/security/alerts/test', headers=second).status_code == 409
+    for _ in range(5): assert client.post('/security/alerts/test', headers=first).status_code == 201
+    assert client.post('/security/alerts/test', headers=first).status_code == 429
+    assert len(client.get('/security/alerts', headers=first).json()['alerts']) == 5
+    assert client.get('/security/alerts', headers=second).json()['alerts'] == []
+    monkeypatch.delenv('NETSHIELD_DEV_ALERT_TEST')
+    assert client.post('/security/alerts/test', headers=first).status_code == 404

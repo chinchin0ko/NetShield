@@ -29,6 +29,11 @@ class FakeApi extends ApiClient {
   FakeApi({this.fail = false});
   final bool fail;
   bool revoked = false;
+  bool testAlert = false;
+  @override
+  Future<List<Map<String, dynamic>>> securityAlerts(String token) async => testAlert ? [{"device_id": "a" * 32, "signature": "PRUEBA: alerta simulada de NetShield", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}] : [];
+  @override
+  Future<void> createTestAlert(String token) async { testAlert = true; }
   @override
   Future<List<Map<String, dynamic>>> vpnDevices(String token) async => [{'device_id': 'b' * 32, 'enabled': true}];
   @override
@@ -78,7 +83,10 @@ void main() {
     expect(find.text('Enviado 4.0 KB · Recibido 8.0 KB'), findsOneWidget);
     await tester.tap(find.text('Alertas'));
     await tester.pumpAndSettle();
-    expect(find.text('Alertas personales en preparación'), findsOneWidget);
+    expect(find.textContaining('La detección real aún no está activa'), findsOneWidget);
+    await tester.tap(find.text('Generar alerta de prueba'));
+    await tester.pumpAndSettle();
+    expect(find.text('PRUEBA: alerta simulada de NetShield'), findsOneWidget);
   });
 
   testWidgets('Restored traffic lock can be disabled before login', (tester) async {

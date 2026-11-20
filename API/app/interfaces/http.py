@@ -196,3 +196,46 @@ def list_devices(user=Depends(current_identity), service: DeviceService = Depend
 def delete_device(device_id: int, user=Depends(current_identity), service: DeviceService = Depends(get_device_service)):
     if not service.delete(user.id, device_id):
         raise HTTPException(status_code=404, detail='Device not found')
+
+
+@router.get('/security/alerts')
+def personal_security_alerts(response: Response, user=Depends(current_identity)):
+    from app.infrastructure.personal_alerts import PostgresPersonalAlerts
+    try:
+        alerts = PostgresPersonalAlerts().list_for_user(user.id)
+    except (psycopg.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='Alerts unavailable') from None
+    response.headers['Cache-Control'] = 'no-store'
+    return {'alerts': alerts, 'monitoring': 'not_active'}
+
+
+@router.post('/security/alerts/test', status_code=201)
+def create_test_security_alert(response: Response, user=Depends(current_identity)):
+    # Explicit development opt-in; the account is always derived from its token.
+    if os.environ.get('NETSHIELD_DEV_ALERT_TEST') != '1':
+        raise HTTPException(status_code=404, detail='Not found')
+    import hashlib
+    import secrets
+    from app.infrastructure.postgres import database
+    try:
+        with database() as conn:
+            conn.execute('SELECT pg_advisory_xact_lock(%s, %s)', (19111, user.id % 2147483647))
+            count = conn.execute("SELECT count(*) FROM personal_security_alerts WHERE user_id = %s "
+                                 "AND signature = %s AND created_at > now() - interval '1 hour'",
+                                 (user.id, 'PRUEBA: alerta simulada de NetShield')).fetchone()[0]
+            if count >= 5:
+                raise HTTPException(status_code=429, detail='Test limit reached')
+            row = conn.execute('SELECT device_id FROM vpn_address_assignments '
+                               'WHERE user_id = %s AND valid_until IS NULL '
+                               'ORDER BY valid_from DESC LIMIT 1', (user.id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=409, detail='No active device')
+            conn.execute('INSERT INTO personal_security_alerts '
+                         '(event_hash, user_id, device_id, occurred_at, signature, severity) '
+                         'VALUES (%s, %s, %s, clock_timestamp(), %s, %s)',
+                         (hashlib.sha256(secrets.token_bytes(32)).hexdigest(), user.id, row[0],
+                          'PRUEBA: alerta simulada de NetShield', 3))
+    except (psycopg.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='Alerts unavailable') from None
+    response.headers['Cache-Control'] = 'no-store'
+    return {'message': 'test alert created'}
