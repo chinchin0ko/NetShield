@@ -2,6 +2,7 @@
 import psycopg
 import os
 import re
+import json
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -9,6 +10,8 @@ from pydantic import BaseModel, Field
 from app.application.auth import AuthService, AuthenticationError, LoginRateLimited
 from app.composition import get_auth_service, get_device_service
 from app.application.devices import DeviceService, InvalidDevice, DeviceAlreadyExists
+from app.application.alerts import AlertService, InvalidAlert, parse_alert
+from app.infrastructure.alerts import PostgresAlerts
 
 router = APIRouter()
 bearer = HTTPBearer(auto_error=False)
@@ -22,6 +25,30 @@ class Credentials(BaseModel):
 class NewAccount(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=r'^[a-zA-Z0-9_.-]+$')
     password: str = Field(min_length=12, max_length=128)
+
+
+class AlertBatch(BaseModel):
+    events: list[dict] = Field(min_length=1, max_length=25)
+
+
+@router.post('/internal/suricata/alerts')
+def import_suricata_alerts(batch: AlertBatch):
+    # Enable only on the mTLS listener; the public proxy must not route this path.
+    if os.environ.get('NETSHIELD_SURICATA_INGEST') != '1':
+        raise HTTPException(status_code=404, detail='Not found')
+    service = AlertService(PostgresAlerts())
+    inserted = 0
+    try:
+        serialized = [json.dumps(event) for event in batch.events]
+        if any(parse_alert(event) is None for event in serialized):
+            raise InvalidAlert('Only alerts are accepted')
+        for event in serialized:
+            inserted += int(service.ingest(event))
+    except InvalidAlert:
+        raise HTTPException(status_code=422, detail='Invalid alert') from None
+    except (psycopg.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='Alert storage unavailable') from None
+    return {'inserted': inserted}
 
 
 @router.post('/auth/register', status_code=201)

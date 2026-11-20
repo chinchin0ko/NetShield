@@ -1,0 +1,14 @@
+post_install() {
+  systemctl enable netshield-lock-restore.service >/dev/null || echo 'Activa netshield-lock-restore.service para proteger el arranque.'
+}
+post_upgrade() {
+  post_install
+}
+pre_remove() {
+  if [ -e /var/lib/netshield-lock/active.json ]; then
+    echo 'ATENCIÓN: desactiva el bloqueo de NetShield antes de retirar el paquete.'
+  fi
+}
+post_remove() {
+  systemctl disable netshield-lock-restore.service >/dev/null 2>&1 || true
+}

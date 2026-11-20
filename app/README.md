@@ -4,10 +4,10 @@ Cliente de desarrollo en Flutter para Linux. Incluye inicio de sesión y conexi�
 
 ## Paquete de prueba para Arch Linux x86_64
 
-`dist/netshield-vpn-dev-0.1.0-3-x86_64.pkg.tar.zst` se genera localmente con `./scripts/package-arch.sh` después de `flutter build linux --release`. El equipo de compilación necesita Flutter y `makepkg`; quien instala el paquete no necesita Flutter ni el código fuente. El paquete declara sus dependencias de Arch y se instala con:
+`dist/netshield-vpn-dev-0.1.0-4-x86_64.pkg.tar.zst` se genera localmente con `./scripts/package-arch.sh` después de `flutter build linux --release`. El equipo de compilación necesita Flutter y `makepkg`; quien instala el paquete no necesita Flutter ni el código fuente. El paquete declara sus dependencias de Arch y se instala con:
 
 ```bash
-sudo pacman -U ./dist/netshield-vpn-dev-0.1.0-3-x86_64.pkg.tar.zst
+sudo pacman -U ./dist/netshield-vpn-dev-0.1.0-4-x86_64.pkg.tar.zst
 ```
 
 Abre **NetShield VPN** desde el menú o ejecuta `netshield-vpn`. Es necesario tener NetworkManager activo y un agente gráfico de polkit. Puedes crear una cuenta desde la aplicación. Para retirar el paquete, desconecta primero la VPN y desactiva el bloqueo desde la aplicación; después ejecuta `sudo pacman -R netshield-vpn-dev`. Esto no elimina las claves privadas o el identificador guardados en `~/.local/share/netshield/`.
@@ -56,7 +56,7 @@ sudo install -o root -g root -m 755 linux/netshield/killswitch.py /usr/local/sbi
 sudo install -o root -g root -m 644 linux/netshield/com.netshield.killswitch.policy /usr/share/polkit-1/actions/com.netshield.killswitch.policy
 ```
 
-Al conectar, KDE puede pedir autorización de administrador. El bloqueo permanece si el túnel cae o la ventana se cierra. Para volver a permitir tráfico, pulsa **Desconectar** o **Desactivar bloqueo**. Si instalaste el paquete y no puedes abrir la aplicación, ejecuta `pkexec /usr/lib/netshield/netshield-killswitch disable`. Para la instalación manual anterior, la ruta es `/usr/local/sbin/netshield-killswitch`. El bloqueo se aplica mientras está activado; después de reiniciar el equipo no se activa automáticamente. En desarrollo se permiten al servidor VPN el puerto UDP 51820 y SSH TCP 22 para mantener el túnel de administración.
+Al conectar, KDE puede pedir autorización de administrador. El bloqueo permanece si el túnel cae o la ventana se cierra. El paquete instala un servicio que restaura el bloqueo antes de la red tras reiniciar, si estaba activado. Después del reinicio, la pantalla de inicio permite desconectar y desactivar el bloqueo para recuperar la conexión antes de iniciar sesión; esta acción permite salir fuera de la VPN. Para volver a permitir tráfico, pulsa **Desconectar** o **Desactivar bloqueo**. Si instalaste el paquete y no puedes abrir la aplicación, ejecuta `pkexec /usr/lib/netshield/netshield-killswitch disable`. Para la instalación manual anterior, la ruta es `/usr/local/sbin/netshield-killswitch`; esa instalación requiere configurar por separado el servicio de arranque. Fuera del túnel solo se permite UDP 51820 hacia el servidor para mantener WireGuard; el túnel SSH opcional de desarrollo dejará de funcionar mientras esté activo el bloqueo. La restauración se ha probado en un espacio aislado, todavía no en un reinicio completo real; un fallo del servicio o de nftables requiere intervención manual.
 
 La aplicación permite listar y revocar dispositivos de la cuenta. Un dispositivo revocado no puede reinscribirse automáticamente con su mismo identificador. La revocación no invalida el token de usuario; si fue comprometido, también hay que desactivar la cuenta o cambiar las credenciales.
 

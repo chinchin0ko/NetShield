@@ -44,6 +44,26 @@ class _ShieldHomeState extends State<ShieldHome> {
   String? error, notice, token, signedInAs;
 
   @override
+  void initState() {
+    super.initState();
+    vpn.isKillSwitchEnabled().then((blocked) {
+      if (mounted) setState(() => trafficBlocked = blocked);
+    }).catchError((_) {});
+  }
+
+  Future<void> unlockBeforeLogin() async {
+    setState(() { loading = true; error = null; });
+    try {
+      await vpn.disconnect();
+      if (mounted) setState(() { trafficBlocked = false; notice = 'Bloqueo desactivado. Ya puedes iniciar sesión.'; });
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  @override
   void dispose() { monitor?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
 
   Future<void> signIn() async {
@@ -222,6 +242,11 @@ class _ShieldHomeState extends State<ShieldHome> {
     Text(register ? 'Crea tu cuenta' : 'Qué gusto verte', style: const TextStyle(fontSize: 29, color: deep, fontWeight: FontWeight.w800, letterSpacing: -.8)),
     const SizedBox(height: 9),
     Text(register ? 'Tu cuenta de NetShield empieza aquí.' : 'Inicia sesión para continuar.', style: const TextStyle(color: Color(0xFF6e7c6a), fontSize: 14)),
+    if (trafficBlocked) ...[
+      const SizedBox(height: 12),
+      const Text('El bloqueo de tráfico está activo. Puedes desactivarlo para recuperar la conexión.', style: TextStyle(color: forest, fontSize: 13)),
+      TextButton(onPressed: loading ? null : unlockBeforeLogin, child: const Text('Desconectar VPN y desactivar bloqueo')),
+    ],
     const SizedBox(height: 27),
     Container(padding: const EdgeInsets.all(4), decoration: BoxDecoration(color: const Color(0xFFe8ece0), borderRadius: BorderRadius.circular(15)), child: Row(children: [
       tab('Iniciar sesión', !register, () => switchMode(false)), tab('Crear cuenta', register, () => switchMode(true)),

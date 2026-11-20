@@ -6,6 +6,7 @@ export NETSHIELD_KILLSWITCH_TEST_HELPER="$(realpath "$(dirname "$0")/../../app/l
 exec unshare --user --map-root-user --mount --net bash -c '
 set -euo pipefail
 mount -t tmpfs -o mode=755 tmpfs /run
+mount -t tmpfs -o mode=755 tmpfs /var/lib
 umask 077
 workdir=$(mktemp -d)
 a=""; b=""
@@ -52,7 +53,14 @@ if nsenter -t "$a" -n ping -6 -c 1 -W 1 fd42::2 >/dev/null 2>&1; then echo "Erro
 nsenter -t "$a" -n ip link set ns123456789abc down
 if nsenter -t "$a" -n ping -4 -c 1 -W 1 192.0.2.2 >/dev/null 2>&1; then echo "Error: fuga con VPN caída" >&2; exit 1; fi
 echo "OK: IPv4 e IPv6 directos bloqueados incluso con el túnel caído"
+# Simulate loss of runtime state and reboot restoration in this isolated namespace.
+nsenter -t "$a" -n nft delete table inet netshield_lock
+rm /run/netshield-lock/active
+nsenter -t "$a" -n python3 "$NETSHIELD_KILLSWITCH_TEST_HELPER" restore
+if nsenter -t "$a" -n ping -4 -c 1 -W 1 192.0.2.2 >/dev/null 2>&1; then echo "Error: fuga tras restaurar" >&2; exit 1; fi
+echo "OK: el bloqueo se restaura desde el estado persistente"
 nsenter -t "$a" -n python3 "$NETSHIELD_KILLSWITCH_TEST_HELPER" disable
+test ! -e /var/lib/netshield-lock/active.json
 nsenter -t "$a" -n ping -4 -c 1 -W 2 192.0.2.2 >/dev/null
 echo "OK: conectividad restaurada al retirar el bloqueo de prueba"
 '

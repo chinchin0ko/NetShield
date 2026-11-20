@@ -13,6 +13,8 @@ cp -a "$bundle/." "$workdir/input/bundle/"
 install -m755 "$app_dir/linux/netshield/killswitch.py" "$workdir/input/netshield-killswitch"
 install -m644 "$app_dir/packaging/arch/com.netshield.killswitch.packaged.policy" "$workdir/input/netshield.policy"
 install -m644 "$app_dir/packaging/arch/netshield.desktop" "$workdir/input/netshield.desktop"
+install -m644 "$app_dir/packaging/arch/netshield-lock-restore.service" "$workdir/input/netshield-lock-restore.service"
+install -m644 "$app_dir/packaging/arch/netshield.install" "$workdir/netshield.install"
 install -m644 "$app_dir/assets/netshield.svg" "$workdir/input/netshield.svg"
 tar -C "$workdir" -czf "$workdir/netshield-arch-input.tar.gz" input
 hash=$(sha256sum "$workdir/netshield-arch-input.tar.gz" | cut -d' ' -f1)

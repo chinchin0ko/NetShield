@@ -14,6 +14,7 @@ Environment=NETSHIELD_WG_BRIDGE_HOST=ubuntu@10.0.0.124
 Environment=NETSHIELD_WG_BRIDGE_KNOWN_HOSTS=/var/lib/netshield-wg-bridge/known_hosts
 Environment=NETSHIELD_PUBLIC_LIMIT=1
 Environment=NETSHIELD_DEV_REGISTRATION=1
+Environment=NETSHIELD_SURICATA_INGEST=1
 ExecStart=/opt/netshield-api-dev/venv/bin/python -m uvicorn app.main:app --host 10.0.0.250 --port 18443 --ssl-keyfile /etc/netshield-private/server.key --ssl-certfile /etc/netshield-private/server.crt --ssl-ca-certs /etc/netshield-private/ca.crt --ssl-cert-reqs 2 --no-proxy-headers --no-server-header
 Restart=on-failure
 RestartSec=5

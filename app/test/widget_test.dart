@@ -38,6 +38,22 @@ class FakeApi extends ApiClient {
 }
 
 void main() {
+  testWidgets('Restored traffic lock can be disabled before login', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    final vpn = FakeVpn(api)..connected = true;
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
+    await tester.pumpAndSettle();
+    expect(find.text('Desconectar VPN y desactivar bloqueo'), findsOneWidget);
+    await tester.tap(find.text('Desconectar VPN y desactivar bloqueo'));
+    await tester.pumpAndSettle();
+    expect(vpn.connected, isFalse);
+    expect(find.text('Bloqueo desactivado. Ya puedes iniciar sesión.'), findsOneWidget);
+  });
+
   testWidgets('Login and logout do not claim a VPN connection', (tester) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
