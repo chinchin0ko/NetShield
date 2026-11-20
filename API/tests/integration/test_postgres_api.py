@@ -204,3 +204,30 @@ def test_alert_test_endpoint_is_scoped_and_limited(lab_database, monkeypatch):
     assert client.get('/security/alerts', headers=second).json()['alerts'] == []
     monkeypatch.delenv('NETSHIELD_DEV_ALERT_TEST')
     assert client.post('/security/alerts/test', headers=first).status_code == 404
+
+
+def test_sensor_ingestion_authenticates_and_checks_current_owner(lab_database, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from app.infrastructure.postgres import database
+    now = datetime.now(timezone.utc)
+    with database() as conn:
+        conn.execute('INSERT INTO vpn_address_assignments (address,user_id,device_id,valid_from) VALUES (%s,%s,%s,%s)',
+                     ('10.8.0.2', 1, 'a'*32, now - timedelta(minutes=2)))
+    secret = 't' * 64
+    monkeypatch.setenv('NETSHIELD_PERSONAL_SENSOR_KEY', secret)
+    monkeypatch.setattr('app.infrastructure.wg_easy_bridge._request',
+                        lambda *args, **kwargs: {'ownership_snapshot': [{'user_id': 1, 'device_id': 'a'*32, 'address': '10.8.0.2'}]})
+    client = TestClient(app)
+    event = {'event_type': 'alert', 'timestamp': now.isoformat(), 'src_ip': '10.8.0.2', 'dest_ip': '1.1.1.1',
+             'alert': {'signature': 'MALWARE synthetic', 'severity': 2}}
+    assert client.post('/internal/suricata/personal', json={'events': [event]}).status_code == 404
+    headers = {'X-NetShield-Sensor-Key': secret}
+    assert client.post('/internal/suricata/personal', headers=headers, json={'events': [event]}).json()['inserted'] == 1
+    assert client.post('/internal/suricata/personal', headers=headers, json={'events': [event]}).json()['inserted'] == 0
+    monkeypatch.setattr('app.infrastructure.wg_easy_bridge._request',
+                        lambda *args, **kwargs: {'ownership_snapshot': [{'user_id': 2, 'device_id': 'b'*32, 'address': '10.8.0.2'}]})
+    event['alert']['signature'] = 'MALWARE another synthetic'
+    assert client.post('/internal/suricata/personal', headers=headers, json={'events': [event]}).json()['inserted'] == 0
+    with database() as conn:
+        assert conn.execute('SELECT count(*) FROM personal_security_alerts WHERE user_id=1').fetchone()[0] == 1
+        assert conn.execute('SELECT count(*) FROM personal_security_alerts WHERE user_id=2').fetchone()[0] == 0

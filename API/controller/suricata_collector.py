@@ -3,6 +3,7 @@
 import json
 import ipaddress
 import os
+import re
 import ssl
 import sys
 import time
@@ -28,6 +29,9 @@ def relevant(line):
             return None
         severity = alert['severity']
         timestamp = event['timestamp']
+        # Python versions before 3.11 reject Suricata offsets such as +0000.
+        if isinstance(timestamp, str):
+            timestamp = re.sub(r'([+-]\d{2})(\d{2})$', r'\1:\2', timestamp)
         if not 1 <= len(signature) <= 1024 or type(severity) is not int or not 1 <= severity <= 255:
             return None
         if datetime.fromisoformat(timestamp.replace('Z', '+00:00')).tzinfo is None:
@@ -35,7 +39,7 @@ def relevant(line):
         for address in (event.get('src_ip'), event.get('dest_ip')):
             if address is not None:
                 ipaddress.ip_address(address)
-        return {'event_type': 'alert', 'timestamp': event['timestamp'],
+        return {'event_type': 'alert', 'timestamp': timestamp,
                 'src_ip': event.get('src_ip'), 'dest_ip': event.get('dest_ip'),
                 'alert': {'signature': signature, 'severity': severity}}
     except (ValueError, TypeError, AttributeError, KeyError):

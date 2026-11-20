@@ -25,6 +25,7 @@ def test_collector_starts_at_end_minimizes_data_and_handles_rotation(tmp_path):
         f.write('{"event_type":')
     cursor, events = scan(path, cursor)
     assert len(events) == 1 and 'http' not in events[0]
+    assert events[0]['timestamp'] == '2026-11-20T10:00:00+00:00'
     assert path.read_bytes()[cursor['offset']:] == b'{"event_type":'
     path.rename(tmp_path / 'eve.json.1')
     path.write_text(json.dumps(alert('ET EXPLOIT test')) + '\n')

@@ -3,7 +3,7 @@ import psycopg
 import os
 import re
 import json
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -203,10 +203,14 @@ def personal_security_alerts(response: Response, user=Depends(current_identity))
     from app.infrastructure.personal_alerts import PostgresPersonalAlerts
     try:
         alerts = PostgresPersonalAlerts().list_for_user(user.id)
+        from app.infrastructure.postgres import database
+        with database() as conn:
+            row = conn.execute("SELECT last_seen > clock_timestamp() - interval '30 seconds' AND last_seen <= clock_timestamp() + interval '2 seconds' FROM vpn_sensor_heartbeat WHERE id=1").fetchone()
+            monitoring = 'experimental' if row and row[0] else 'not_active'
     except (psycopg.Error, RuntimeError):
         raise HTTPException(status_code=503, detail='Alerts unavailable') from None
     response.headers['Cache-Control'] = 'no-store'
-    return {'alerts': alerts, 'monitoring': 'not_active'}
+    return {'alerts': alerts, 'monitoring': monitoring}
 
 
 @router.post('/security/alerts/test', status_code=201)
@@ -239,3 +243,44 @@ def create_test_security_alert(response: Response, user=Depends(current_identity
         raise HTTPException(status_code=503, detail='Alerts unavailable') from None
     response.headers['Cache-Control'] = 'no-store'
     return {'message': 'test alert created'}
+
+
+class PersonalBatch(BaseModel):
+    events: list[dict] = Field(default_factory=list, max_length=25)
+
+
+@router.post('/internal/suricata/personal')
+def ingest_personal_sensor(batch: PersonalBatch, x_netshield_sensor_key: str = Header(default='')):
+    import hmac
+    from app.application.assignment_lifecycle import SnapshotPeer, validate_snapshot
+    from app.application.personal_alerts import ingest_current_alert
+    from app.infrastructure.assignments import PostgresAssignments
+    from app.infrastructure.personal_alerts import PostgresPersonalAlerts
+    from app.infrastructure.postgres import database
+    from app.infrastructure.wg_easy_bridge import _request, ProvisioningError
+    key = os.environ.get('NETSHIELD_PERSONAL_SENSOR_KEY', '')
+    if len(key) < 40 or not hmac.compare_digest(key, x_netshield_sensor_key):
+        raise HTTPException(status_code=404, detail='Not found')
+    try:
+        events = [json.dumps(event) for event in batch.events]
+        if any(parse_alert(event) is None for event in events):
+            raise InvalidAlert('Invalid event')
+        store = PostgresAssignments()
+        inserted = 0
+        with store.exclusive():
+            result = _request(1, 'snapshot', history=True)
+            raw = result.get('ownership_snapshot')
+            if not isinstance(raw, list): raise ValueError('invalid snapshot')
+            snapshot = validate_snapshot([SnapshotPeer(**peer) for peer in raw])
+            with database() as conn:
+                now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+            for event in events:
+                inserted += int(ingest_current_alert(event, store, PostgresPersonalAlerts(), snapshot, now))
+            with database() as conn:
+                conn.execute('INSERT INTO vpn_sensor_heartbeat (id,last_seen) VALUES (1,clock_timestamp()) '
+                             'ON CONFLICT (id) DO UPDATE SET last_seen=EXCLUDED.last_seen')
+        return {'inserted': inserted}
+    except InvalidAlert:
+        raise HTTPException(status_code=422, detail='Invalid alert') from None
+    except (psycopg.Error, RuntimeError, TypeError, ValueError, ProvisioningError):
+        raise HTTPException(status_code=503, detail='Sensor unavailable') from None

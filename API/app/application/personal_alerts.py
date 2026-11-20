@@ -26,3 +26,35 @@ def ingest_personal_alert(line, assignments, alerts, *, evidence_trusted):
     if owner is None:
         return False
     return alerts.save_for_owner(alert, owner)
+
+
+def ingest_current_alert(line, assignments, alerts, snapshot, database_now):
+    """Accept only recent events for a peer that is still uniquely assigned.
+
+    The caller holds the same database session lock used by peer mutations.
+    Timestamps near assignment changes are intentionally excluded.
+    """
+    from datetime import timedelta
+    alert = parse_alert(line)
+    if alert is None or database_now.tzinfo is None:
+        return False
+    age = database_now - alert.occurred_at
+    if age < timedelta(seconds=-2) or age > timedelta(seconds=15):
+        return False
+    try:
+        ips = {ip_address(alert.source_ip), ip_address(alert.destination_ip)}
+    except (ValueError, TypeError):
+        return False
+    local = [ip for ip in ips if isinstance(ip, IPv4Address) and ip in VPN_NETWORK]
+    if len(local) != 1:
+        return False
+    entries = assignments.find_at(local[0], alert.occurred_at)
+    owner = attribute_pre_nat_event(source=alert.source_ip, destination=alert.destination_ip,
+                                   occurred_at=alert.occurred_at, assignments=entries,
+                                   trusted_pre_nat_sensor=True)
+    if owner is None or owner.valid_until is not None or alert.occurred_at - owner.valid_from < timedelta(seconds=60):
+        return False
+    candidates = [p for p in snapshot if p.address == str(local[0])]
+    if len(candidates) != 1 or candidates[0].user_id != owner.user_id or candidates[0].device_id != owner.device_id:
+        return False
+    return alerts.save_for_owner(alert, owner)
