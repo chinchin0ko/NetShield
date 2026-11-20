@@ -153,6 +153,17 @@ def vpn_devices(user=Depends(current_identity)):
         raise HTTPException(status_code=503, detail='VPN unavailable') from None
 
 
+@router.get('/vpn/usage')
+def vpn_usage(response: Response, user=Depends(current_identity)):
+    from app.infrastructure.wg_easy_bridge import device_usage, ProvisioningError
+    try:
+        devices = device_usage(user.id)
+    except ProvisioningError:
+        raise HTTPException(status_code=503, detail='VPN usage unavailable') from None
+    response.headers['Cache-Control'] = 'no-store'
+    return {'devices': devices, 'scope': 'current_wireguard_counters'}
+
+
 @router.post('/vpn/devices/{device_id}/revoke', status_code=204)
 def revoke_vpn_device(device_id: str, user=Depends(current_identity)):
     from app.infrastructure.wg_easy_bridge import revoke, ProvisioningError

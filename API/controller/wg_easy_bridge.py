@@ -20,6 +20,31 @@ def device_limit_reached(clients, prefix):
     return len(owned) >= MAX_TOTAL_DEVICES or sum(c.get('enabled') is not False for c in owned) >= MAX_ACTIVE_DEVICES
 
 
+def user_usage(clients, transfer_output, prefix):
+    transfers = {}
+    for row in transfer_output.splitlines():
+        fields = row.split('\t')
+        if len(fields) != 3 or fields[0] in transfers:
+            raise RuntimeError('invalid WireGuard counters')
+        received, sent = int(fields[1]), int(fields[2])
+        if not 0 <= received < 2**63 or not 0 <= sent < 2**63:
+            raise RuntimeError('invalid WireGuard counters')
+        transfers[fields[0]] = (received, sent)
+    devices = []
+    for client in clients:
+        name = client.get('name')
+        if not isinstance(name, str) or not name.startswith(prefix):
+            continue
+        device_id = name[len(prefix):]
+        if not DEVICE.fullmatch(device_id) or client.get('enabled') is not True:
+            continue
+        counters = transfers.get(client.get('publicKey'))
+        devices.append({'device_id': device_id,
+                        'upload_bytes': counters[0] if counters is not None else None,
+                        'download_bytes': counters[1] if counters is not None else None})
+    return devices
+
+
 def main():
     line = sys.stdin.buffer.readline(513)
     if len(line) > 512 or not line.endswith(b'\n'):
@@ -28,15 +53,15 @@ def main():
     if not isinstance(data, dict) or type(data.get('user_id')) is not int or not 0 < data['user_id'] < 2**63:
         raise ValueError('invalid request')
     op = data.get('op', 'provision')
-    expected = {'op', 'user_id'} if op == 'list' else {'op', 'user_id', 'device_id'}
+    expected = {'op', 'user_id'} if op in {'list', 'usage'} else {'op', 'user_id', 'device_id'}
     if op == 'provision' and 'public_key' in data:
         expected.add('public_key')
     if op == 'provision' and 'op' not in data:
         expected.remove('op')
-    if op not in {'provision', 'list', 'revoke'} or set(data) != expected:
+    if op not in {'provision', 'list', 'usage', 'revoke'} or set(data) != expected:
         raise ValueError('invalid operation')
     device = data.get('device_id')
-    if op != 'list' and (not isinstance(device, str) or not DEVICE.fullmatch(device)):
+    if op not in {'list', 'usage'} and (not isinstance(device, str) or not DEVICE.fullmatch(device)):
         raise ValueError('invalid device')
     public_key = data.get('public_key')
     if public_key is not None:
@@ -64,6 +89,13 @@ def main():
             devices = [{'device_id': c['name'][len(prefix):], 'enabled': c['enabled'], 'created_at': c['createdAt']} for c in clients
                        if c.get('name', '').startswith(prefix) and DEVICE.fullmatch(c['name'][len(prefix):])]
             sys.stdout.write(json.dumps({'devices': devices}) + '\n')
+            return
+        if op == 'usage':
+            # wg reports bytes received by the server first, then sent by it.
+            # Never return peer keys or other users' counters.
+            result = subprocess.run(['docker', 'exec', 'wg-easy', 'wg', 'show', 'wg0', 'transfer'],
+                                    check=True, capture_output=True, text=True, timeout=5)
+            sys.stdout.write(json.dumps({'devices': user_usage(clients, result.stdout, prefix)}) + '\n')
             return
         matches = [x for x in clients if x.get('name') == name]
         if len(matches) > 1:

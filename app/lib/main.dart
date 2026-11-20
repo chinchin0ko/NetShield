@@ -43,6 +43,9 @@ class _ShieldHomeState extends State<ShieldHome> {
   bool connectionTransition = false;
   int page = 0;
   TrafficUsage? usage;
+  List<VpnDeviceUsage>? serverUsage;
+  bool serverUsageUnavailable = false;
+  DateTime? serverUsageRequestedAt;
   bool usageLoading = false;
   late final LinuxVpn vpn = widget.vpn ?? LinuxVpn(widget.api);
   Timer? monitor;
@@ -133,12 +136,24 @@ class _ShieldHomeState extends State<ShieldHome> {
 
   Future<void> refreshUsage() async {
     if (usageLoading || token == null) return;
+    final currentToken = token!;
     setState(() => usageLoading = true);
     try {
-      final result = await vpn.trafficUsage();
-      if (mounted && token != null) setState(() => usage = result);
-    } catch (_) {
-      if (mounted) setState(() => usage = null);
+      try {
+        final result = await vpn.trafficUsage();
+        if (mounted && token == currentToken) setState(() => usage = result);
+      } catch (_) {
+        if (mounted && token == currentToken) setState(() => usage = null);
+      }
+      if (serverUsageRequestedAt == null || DateTime.now().difference(serverUsageRequestedAt!) >= const Duration(seconds: 20)) {
+        serverUsageRequestedAt = DateTime.now();
+        try {
+          final result = await widget.api.vpnUsage(currentToken);
+          if (mounted && token == currentToken) setState(() { serverUsage = result; serverUsageUnavailable = false; });
+        } catch (_) {
+          if (mounted && token == currentToken) setState(() { serverUsage = null; serverUsageUnavailable = true; });
+        }
+      }
     } finally {
       if (mounted) setState(() => usageLoading = false);
     }
@@ -200,7 +215,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     try {
       if (vpnConnected || trafficBlocked) await vpn.disconnect();
       monitor?.cancel();
-      if (mounted) setState(() { token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; username.clear(); });
+      if (mounted) setState(() { token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; serverUsageRequestedAt = null; username.clear(); });
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo desconectar la VPN.');
     } finally {
@@ -329,7 +344,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     const SizedBox(height: 24),
     AnimatedSwitcher(duration: const Duration(milliseconds: 220), child: KeyedSubtree(key: ValueKey(page), child: switch (page) {
       1 => SettingsPanel(connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
-      2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading),
+      2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable),
       3 => const AlertsPanel(),
       _ => homePanel(),
     })),

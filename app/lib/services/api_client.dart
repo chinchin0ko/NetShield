@@ -8,6 +8,13 @@ class ApiException implements Exception {
   final String message;
 }
 
+class VpnDeviceUsage {
+  const VpnDeviceUsage(this.deviceId, this.uploadBytes, this.downloadBytes);
+  final String deviceId;
+  final int? uploadBytes;
+  final int? downloadBytes;
+}
+
 class ApiClient {
   ApiClient({String? baseUrl, DevTunnel? tunnel})
     : baseUrl = Uri.parse(baseUrl ?? const String.fromEnvironment(
@@ -62,6 +69,25 @@ class ApiClient {
     final result = await _authorized(token, 'GET', '/vpn/devices');
     if (result is! Map || result['devices'] is! List) throw const ApiException('La lista de dispositivos es inválida.');
     return (result['devices'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  Future<List<VpnDeviceUsage>> vpnUsage(String token) async {
+    final result = await _authorized(token, 'GET', '/vpn/usage');
+    if (result is! Map || result['scope'] != 'current_wireguard_counters' || result['devices'] is! List) {
+      throw const ApiException('No se pudo consultar el consumo del servidor.');
+    }
+    final devices = <VpnDeviceUsage>[];
+    for (final item in result['devices'] as List) {
+      if (item is! Map || item['device_id'] is! String || !item.containsKey('upload_bytes') || !item.containsKey('download_bytes') || !RegExp(r'^[0-9a-f]{32}$').hasMatch(item['device_id'] as String)) {
+        throw const ApiException('Los datos de consumo son inválidos.');
+      }
+      final upload = item['upload_bytes'], download = item['download_bytes'];
+      if ((upload != null && (upload is! int || upload < 0)) || (download != null && (download is! int || download < 0))) {
+        throw const ApiException('Los datos de consumo son inválidos.');
+      }
+      devices.add(VpnDeviceUsage(item['device_id'] as String, upload as int?, download as int?));
+    }
+    return devices;
   }
 
   Future<void> revokeVpnDevice(String token, String deviceId) async {

@@ -3,6 +3,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:netshield_app/services/api_client.dart';
 
 void main() {
+  test('reads authenticated per-device server counters and unavailable values', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      expect(request.headers.value(HttpHeaders.authorizationHeader), 'Bearer token');
+      request.response.write('{"scope":"current_wireguard_counters","devices":[{"device_id":"${'a' * 32}","upload_bytes":null,"download_bytes":12}]}');
+      await request.response.close();
+    });
+    final api = ApiClient(baseUrl: 'http://127.0.0.1:${server.port}');
+    try {
+      final devices = await api.vpnUsage('token');
+      expect(devices.single.uploadBytes, isNull);
+      expect(devices.single.downloadBytes, 12);
+    } finally {
+      api.close();
+      await server.close(force: true);
+    }
+  });
+
   test('explains the VPN device quota', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((request) async {

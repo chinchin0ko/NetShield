@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 import '../services/linux_vpn.dart';
+import '../services/api_client.dart';
 
 const _ink = Color(0xff344e41);
 const _green = Color(0xff3a5a40);
@@ -54,9 +55,11 @@ String formatBytes(int value) {
 }
 
 class UsagePanel extends StatelessWidget {
-  const UsagePanel({super.key, required this.connected, required this.usage, required this.loading});
+  const UsagePanel({super.key, required this.connected, required this.usage, required this.loading, required this.serverUsage, required this.serverUnavailable});
   final bool connected, loading;
   final TrafficUsage? usage;
+  final List<VpnDeviceUsage>? serverUsage;
+  final bool serverUnavailable;
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     const PanelHeading('TU ACTIVIDAD', 'Consumo', 'El tráfico de este dispositivo durante la conexión actual.'),
@@ -69,6 +72,18 @@ class UsagePanel extends StatelessWidget {
       Row(children: [Expanded(child: _UsageCard(icon: Icons.south_west_rounded, label: 'RECIBIDO', value: formatBytes(usage!.receivedBytes))), const SizedBox(width: 12), Expanded(child: _UsageCard(icon: Icons.north_east_rounded, label: 'ENVIADO', value: formatBytes(usage!.sentBytes)))]),
       const SizedBox(height: 16), const Text('Los contadores se reinician cuando se vuelve a crear el túnel. No incluyen un historial.', style: TextStyle(color: _muted, fontSize: 12, height: 1.45)),
     ],
+    const SizedBox(height: 24),
+    const Text('Tus dispositivos', style: TextStyle(color: _ink, fontSize: 16, fontWeight: FontWeight.w800)),
+    const SizedBox(height: 8),
+    const Text('Contadores del servidor desde el último reinicio de WireGuard. No son un historial.', style: TextStyle(color: _muted, fontSize: 12, height: 1.4)),
+    const SizedBox(height: 12),
+    if (serverUsage == null) SoftCard(child: Text(serverUnavailable ? 'No pudimos consultar el servidor.' : 'Consultando consumo…', style: const TextStyle(color: _muted, fontSize: 12)))
+    else if (serverUsage!.isEmpty) const SoftCard(child: Text('No hay dispositivos habilitados.', style: TextStyle(color: _muted, fontSize: 12)))
+    else ...serverUsage!.map((device) => Padding(padding: const EdgeInsets.only(bottom: 8), child: SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Dispositivo ${device.deviceId.substring(0, 8)}', style: const TextStyle(color: _ink, fontWeight: FontWeight.w800, fontSize: 13)),
+      const SizedBox(height: 5),
+      Text(device.uploadBytes == null || device.downloadBytes == null ? 'Contadores no disponibles' : 'Enviado ${formatBytes(device.uploadBytes!)} · Recibido ${formatBytes(device.downloadBytes!)}', style: const TextStyle(color: _muted, fontSize: 12)),
+    ])))),
   ]);
 }
 

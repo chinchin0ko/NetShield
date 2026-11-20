@@ -32,6 +32,8 @@ class FakeApi extends ApiClient {
   @override
   Future<List<Map<String, dynamic>>> vpnDevices(String token) async => [{'device_id': 'b' * 32, 'enabled': true}];
   @override
+  Future<List<VpnDeviceUsage>> vpnUsage(String token) async => [VpnDeviceUsage('b' * 32, 4096, 8192)];
+  @override
   Future<void> revokeVpnDevice(String token, String deviceId) async { revoked = true; }
   @override
   Future<void> register(String username, String password) async {}
@@ -73,6 +75,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('2.0 KB'), findsOneWidget);
     expect(find.text('1.0 KB'), findsOneWidget);
+    expect(find.text('Enviado 4.0 KB · Recibido 8.0 KB'), findsOneWidget);
     await tester.tap(find.text('Alertas'));
     await tester.pumpAndSettle();
     expect(find.text('Alertas personales en preparación'), findsOneWidget);

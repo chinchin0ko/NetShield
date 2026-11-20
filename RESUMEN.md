@@ -12,6 +12,8 @@ El registro público y la API HTTPS están habilitados para pruebas. PostgreSQL 
 
 La interfaz Linux tiene secciones de inicio, ajustes, consumo y alertas. El Kill Switch se puede activar y desactivar durante una conexión y los contadores de consumo provienen de la interfaz local; no hay historial. El panel de alertas aún no consulta eventos personales porque no están asociados de forma segura a una cuenta.
 
+La API también ofrece consumo actual por dispositivo habilitado de la cuenta, basado en contadores de WireGuard del servidor, sin histórico. El diseño pendiente para alertas atribuibles y sus pruebas está en `API/docs/consumo-y-alertas.md`.
+
 Suricata está activo en la interfaz pública y se ha observado en sus registros una consulta DNS de prueba originada desde el entorno del contenedor VPN. El recolector toma desde el final del EVE existente las nuevas alertas cuya firma contiene MALWARE, TROJAN o EXPLOIT, conserva solo campos mínimos y las guarda en PostgreSQL por mTLS con deduplicación. Son alertas generales del servidor; el NAT impide atribuirlas de forma fiable a una cuenta y no existe todavía una API pública para consultarlas. HTTPS y otros contenidos cifrados no son inspeccionados como texto plano. La prueba offline usa un indicador sintético y no demuestra detección completa de malware.
 
 El cursor detecta rotación por cambio de inode o reducción del archivo y reintenta la entrega antes de avanzar. Una rotación durante una caída prolongada puede dejar datos en archivos antiguos sin procesar: falta una estrategia de recuperación completa, retención, control de volumen y monitoreo. Los registros históricos de Suricata pueden contener datos sensibles; limitar acceso y establecer rotación y retención es prioritario.

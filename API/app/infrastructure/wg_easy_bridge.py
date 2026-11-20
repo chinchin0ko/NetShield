@@ -22,7 +22,7 @@ class DeviceLimitReached(Exception):
 
 
 def _request(user_id: int, operation: str, device_id: str | None = None, public_key: str | None = None) -> dict:
-    if operation not in {'provision', 'revoke', 'list'} or (device_id is not None and not re.fullmatch(r'[0-9a-f]{32}', device_id)):
+    if operation not in {'provision', 'revoke', 'list', 'usage'} or (device_id is not None and not re.fullmatch(r'[0-9a-f]{32}', device_id)):
         raise ValueError('invalid request')
     key = os.environ.get('NETSHIELD_WG_BRIDGE_KEY')
     host = os.environ.get('NETSHIELD_WG_BRIDGE_HOST')
@@ -66,6 +66,22 @@ def list_devices(user_id: int) -> list:
     devices = _request(user_id, 'list').get('devices')
     if not isinstance(devices, list):
         raise ProvisioningError('VPN unavailable')
+    return devices
+
+
+def device_usage(user_id: int) -> list:
+    devices = _request(user_id, 'usage').get('devices')
+    if not isinstance(devices, list):
+        raise ProvisioningError('VPN unavailable')
+    for device in devices:
+        if (not isinstance(device, dict) or not isinstance(device.get('device_id'), str)
+                or not re.fullmatch(r'[0-9a-f]{32}', device['device_id'])
+                or not {'upload_bytes', 'download_bytes'} <= device.keys()):
+            raise ProvisioningError('VPN unavailable')
+        for field in ('upload_bytes', 'download_bytes'):
+            value = device.get(field)
+            if value is not None and (type(value) is not int or not 0 <= value < 2**63):
+                raise ProvisioningError('VPN unavailable')
     return devices
 
 
