@@ -115,6 +115,13 @@ def test_vpn_config_requires_identity_and_uses_authenticated_user(monkeypatch):
             raise DeviceKeyConflict
         monkeypatch.setattr('app.infrastructure.wg_easy_bridge.provision', conflict)
         assert client.post('/vpn/config', json={'device_id': device, 'public_key': public_key}, headers={'Authorization': f'Bearer {token}'}).status_code == 409
+        from app.infrastructure.wg_easy_bridge import DeviceLimitReached
+        def at_limit(*args):
+            raise DeviceLimitReached
+        monkeypatch.setattr('app.infrastructure.wg_easy_bridge.provision', at_limit)
+        limited = client.post('/vpn/config', json={'device_id': device, 'public_key': public_key}, headers={'Authorization': f'Bearer {token}'})
+        assert limited.status_code == 409
+        assert limited.json()['detail'] == 'Device limit reached'
     finally:
         app.dependency_overrides.clear()
 

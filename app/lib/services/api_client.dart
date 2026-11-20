@@ -85,7 +85,15 @@ class ApiClient {
       final body = await utf8.decoder.bind(response).join();
       if (response.statusCode == 401) throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
       if (response.statusCode == 403) throw const ApiException('Este dispositivo fue revocado. Contacta al administrador.');
-      if (response.statusCode == 409) throw const ApiException('La clave de este dispositivo ya está en uso por otra cuenta.');
+      if (response.statusCode == 409) {
+        try {
+          final error = jsonDecode(body);
+          if (error is Map && error['detail'] == 'Device limit reached') {
+            throw const ApiException('Alcanzaste el límite de dispositivos. Revoca uno o contacta al administrador.');
+          }
+        } on FormatException { /* Use the generic conflict message. */ }
+        throw const ApiException('La clave de este dispositivo ya está en uso por otra cuenta.');
+      }
       if (response.statusCode != 200) throw const ApiException('No se pudo preparar la VPN.');
       final data = jsonDecode(body);
       if (data is! Map || data['config'] is! String) throw const ApiException('La configuración VPN es inválida.');

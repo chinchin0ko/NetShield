@@ -10,6 +10,14 @@ import sys
 import urllib.request
 
 DEVICE = re.compile(r'[0-9a-f]{32}\Z')
+MAX_ACTIVE_DEVICES = 5
+MAX_TOTAL_DEVICES = 20
+
+
+def device_limit_reached(clients, prefix):
+    owned = [c for c in clients if isinstance(c.get('name'), str)
+             and c['name'].startswith(prefix) and DEVICE.fullmatch(c['name'][len(prefix):])]
+    return len(owned) >= MAX_TOTAL_DEVICES or sum(c.get('enabled') is not False for c in owned) >= MAX_ACTIVE_DEVICES
 
 
 def main():
@@ -77,6 +85,10 @@ def main():
             sys.stdout.write(json.dumps({'found': True}) + '\n')
             return
         if not matches:
+            # The lock also serializes this check with peer creation.
+            if device_limit_reached(clients, prefix):
+                sys.stdout.write(json.dumps({'error': 'device_limit'}) + '\n')
+                return
             if public_key is None:
                 call('/api/wireguard/client', {'name': name})
             else:
