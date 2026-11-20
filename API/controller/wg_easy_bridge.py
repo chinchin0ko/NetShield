@@ -2,6 +2,7 @@
 """Restricted development bridge; intended for a forced SSH command only."""
 import fcntl
 import http.cookiejar
+import ipaddress
 import json
 import os
 import re
@@ -45,6 +46,42 @@ def user_usage(clients, transfer_output, prefix):
     return devices
 
 
+def ownership_snapshot(clients, allowed_output):
+    """Cross-check manager and kernel state; omit unmanaged peers from output."""
+    kernel = {}
+    for line in allowed_output.splitlines():
+        fields = line.split('\t')
+        if len(fields) != 2 or fields[0] in kernel:
+            raise RuntimeError('invalid kernel peer state')
+        kernel[fields[0]] = fields[1].split(',')
+    enabled = [c for c in clients if c.get('enabled') is True]
+    if len(enabled) != len(kernel):
+        raise RuntimeError('manager and kernel peers differ')
+    peers, used_addresses, used_keys = [], set(), set()
+    for client in enabled:
+        key = client.get('publicKey')
+        if not isinstance(key, str) or key in used_keys or key not in kernel:
+            raise RuntimeError('manager and kernel peers differ')
+        used_keys.add(key)
+        try:
+            address = ipaddress.ip_address(client.get('address'))
+        except (ValueError, TypeError):
+            raise RuntimeError('invalid peer address') from None
+        if (not isinstance(address, ipaddress.IPv4Address)
+                or address not in ipaddress.ip_network('10.8.0.0/24')
+                or kernel[key] != [f'{address}/32'] or address in used_addresses):
+            raise RuntimeError('ambiguous peer address')
+        used_addresses.add(address)
+        name = client.get('name')
+        match = re.fullmatch(r'netshield-([1-9][0-9]*)-([0-9a-f]{32})', name) if isinstance(name, str) else None
+        if match:
+            user_id = int(match.group(1))
+            if user_id >= 2**63:
+                raise RuntimeError('invalid owner')
+            peers.append({'user_id': user_id, 'device_id': match.group(2), 'address': str(address)})
+    return peers
+
+
 def main():
     line = sys.stdin.buffer.readline(513)
     if len(line) > 512 or not line.endswith(b'\n'):
@@ -54,6 +91,11 @@ def main():
         raise ValueError('invalid request')
     op = data.get('op', 'provision')
     expected = {'op', 'user_id'} if op in {'list', 'usage'} else {'op', 'user_id', 'device_id'}
+    coordinated = data.get('history') is True
+    if 'history' in data:
+        if not coordinated or op not in {'provision', 'revoke'}:
+            raise ValueError('invalid history request')
+        expected.add('history')
     if op == 'provision' and 'public_key' in data:
         expected.add('public_key')
     if op == 'provision' and 'op' not in data:
@@ -85,6 +127,13 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX)
         call('/api/session', {'password': password})
         clients = json.loads(call('/api/wireguard/client'))
+        def emit(payload):
+            if coordinated:
+                current = json.loads(call('/api/wireguard/client'))
+                allowed = subprocess.run(['docker', 'exec', 'wg-easy', 'wg', 'show', 'wg0', 'allowed-ips'],
+                                         check=True, capture_output=True, text=True, timeout=5)
+                payload['ownership_snapshot'] = ownership_snapshot(current, allowed.stdout)
+            sys.stdout.write(json.dumps(payload) + '\n')
         if op == 'list':
             devices = [{'device_id': c['name'][len(prefix):], 'enabled': c['enabled'], 'created_at': c['createdAt']} for c in clients
                        if c.get('name', '').startswith(prefix) and DEVICE.fullmatch(c['name'][len(prefix):])]
@@ -107,14 +156,14 @@ def main():
             return
         if op == 'revoke':
             if not matches:
-                sys.stdout.write(json.dumps({'found': False}) + '\n')
+                emit({'found': False})
                 return
             client_id = matches[0]['id']
             if not re.fullmatch(r'[0-9a-f-]{36}', client_id):
                 raise RuntimeError('invalid peer')
             if matches[0].get('enabled'):
                 call('/api/wireguard/client/' + client_id + '/disable', {})
-            sys.stdout.write(json.dumps({'found': True}) + '\n')
+            emit({'found': True})
             return
         if not matches:
             # The lock also serializes this check with peer creation.
@@ -136,7 +185,7 @@ def main():
         config = call('/api/wireguard/client/' + matches[0]['id'] + '/configuration').decode()
         if len(config) > 8192 or '[Interface]' not in config or '[Peer]' not in config:
             raise RuntimeError('invalid configuration')
-        sys.stdout.write(json.dumps({'config': config}) + '\n')
+        emit({'config': config})
 
 
 if __name__ == '__main__':

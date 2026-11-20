@@ -126,3 +126,39 @@ def test_assignment_history_rejects_overlaps_and_resolves_reused_addresses(lab_d
     assert len(store.find_at(IPv4Address('10.8.0.2'), now)) == 1
     assert store.find_at(IPv4Address('10.8.0.2'), now + timedelta(hours=1))[0].device_id == 'c' * 32
     assert store.find_at(IPv4Address('10.8.0.2'), now - timedelta(seconds=1)) == []
+
+
+def test_coordinator_commits_fail_closed_history_and_serializes_mutations(lab_database):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Lock
+    from app.application.assignment_lifecycle import SnapshotPeer, mutate_with_history
+    from app.infrastructure.assignments import PostgresAssignments
+    from app.infrastructure.postgres import database
+
+    state = {'active': 0, 'maximum': 0}
+    mutex = Lock()
+    class Controller:
+        def __init__(self, fail=False): self.fail = fail
+        def mutate_and_snapshot(self, operation):
+            import time
+            with mutex:
+                state['active'] += 1
+                state['maximum'] = max(state['maximum'], state['active'])
+            try:
+                with database() as conn:
+                    assert conn.execute('SELECT count(*) FROM vpn_address_assignments WHERE valid_until IS NULL').fetchone()[0] == 0
+                time.sleep(.05)
+                if self.fail:
+                    raise RuntimeError('simulated bridge failure')
+                return operation, [SnapshotPeer(1, 'a'*32, '10.8.0.2')]
+            finally:
+                with mutex: state['active'] -= 1
+    def run(_): return mutate_with_history(PostgresAssignments(), Controller(), 'ok')
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        assert list(executor.map(run, range(2))) == ['ok', 'ok']
+    assert state['maximum'] == 1
+    with pytest.raises(RuntimeError):
+        mutate_with_history(PostgresAssignments(), Controller(True), 'fail')
+    with database() as conn:
+        rows = conn.execute('SELECT valid_from, valid_until FROM vpn_address_assignments ORDER BY id').fetchall()
+    assert len(rows) == 2 and all(end is not None and start < end for start, end in rows)
