@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'services/api_client.dart';
 import 'services/linux_vpn.dart';
+import 'screens/dashboard_panels.dart';
 
 const cream = Color(0xFFdad7cd);
 const sage = Color(0xFFa3b18a);
@@ -39,6 +40,10 @@ class _ShieldHomeState extends State<ShieldHome> {
   final confirm = TextEditingController();
   bool register = false, loading = false, hidePassword = true;
   bool vpnConnected = false, vpnLoading = false, trafficBlocked = false;
+  bool connectionTransition = false;
+  int page = 0;
+  TrafficUsage? usage;
+  bool usageLoading = false;
   late final LinuxVpn vpn = widget.vpn ?? LinuxVpn(widget.api);
   Timer? monitor;
   String? error, notice, token, signedInAs;
@@ -86,8 +91,9 @@ class _ShieldHomeState extends State<ShieldHome> {
           final active = await vpn.isConnected();
           final blocked = await vpn.isKillSwitchEnabled();
           if (mounted && !vpnLoading && (vpnConnected != active || trafficBlocked != blocked)) {
-            setState(() { vpnConnected = active; trafficBlocked = blocked; });
+            setState(() { vpnConnected = active; trafficBlocked = blocked; if (!active) usage = null; });
           }
+          if (mounted && page == 2) await refreshUsage();
         } catch (_) { /* Keep last known state if NetworkManager is unavailable. */ }
       });
     } on ApiException catch (e) {
@@ -125,19 +131,66 @@ class _ShieldHomeState extends State<ShieldHome> {
 
   void switchMode(bool value) => setState(() { register = value; error = null; notice = null; password.clear(); confirm.clear(); });
 
-  Future<void> toggleVpn() async {
-    if (vpnLoading || token == null) return;
+  Future<void> refreshUsage() async {
+    if (usageLoading || token == null) return;
+    setState(() => usageLoading = true);
+    try {
+      final result = await vpn.trafficUsage();
+      if (mounted && token != null) setState(() => usage = result);
+    } catch (_) {
+      if (mounted) setState(() => usage = null);
+    } finally {
+      if (mounted) setState(() => usageLoading = false);
+    }
+  }
+
+  void selectPage(int value) {
+    setState(() { page = value; error = null; });
+    if (value == 2) refreshUsage();
+  }
+
+  Future<void> changeKillSwitch(bool enabled) async {
+    if (vpnLoading) return;
+    if (!enabled) {
+      final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+        title: const Text('Desactivar Kill Switch'),
+        content: const Text('Si la VPN se interrumpe, tu tráfico podría salir por la conexión normal. ¿Quieres desactivar el bloqueo?'),
+        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancelar')), TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Desactivar'))],
+      ));
+      if (confirmed != true || !mounted) return;
+    }
     setState(() { vpnLoading = true; error = null; });
     try {
+      await vpn.setKillSwitch(enabled);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => error = 'No se pudo cambiar el bloqueo de tráfico.');
+    } finally {
+      try {
+        final blocked = await vpn.isKillSwitchEnabled();
+        if (mounted) setState(() => trafficBlocked = blocked);
+      } catch (_) { /* Preserve the last known state. */ }
+      if (mounted) setState(() => vpnLoading = false);
+    }
+  }
+
+  Future<void> toggleVpn() async {
+    if (vpnLoading || token == null) return;
+    setState(() { vpnLoading = true; connectionTransition = true; error = null; });
+    try {
       if (vpnConnected || trafficBlocked) { await vpn.disconnect(); } else { await vpn.connect(token!, signedInAs!); }
-      if (mounted) setState(() { vpnConnected = !(vpnConnected || trafficBlocked); trafficBlocked = vpnConnected; });
+      if (mounted) setState(() { vpnConnected = !(vpnConnected || trafficBlocked); trafficBlocked = vpnConnected; if (!vpnConnected) usage = null; });
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo cambiar la conexión VPN.');
     } finally {
-      final blocked = await vpn.isKillSwitchEnabled();
-      if (mounted) setState(() { vpnLoading = false; trafficBlocked = blocked; });
+      try {
+        final blocked = await vpn.isKillSwitchEnabled();
+        if (mounted) setState(() => trafficBlocked = blocked);
+      } catch (_) { /* Preserve the last known state. */ }
+      if (mounted) setState(() { vpnLoading = false; connectionTransition = false; });
     }
   }
 
@@ -147,7 +200,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     try {
       if (vpnConnected || trafficBlocked) await vpn.disconnect();
       monitor?.cancel();
-      if (mounted) setState(() { token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; username.clear(); });
+      if (mounted) setState(() { token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; username.clear(); });
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo desconectar la VPN.');
     } finally {
@@ -269,11 +322,31 @@ class _ShieldHomeState extends State<ShieldHome> {
   ]);
 
   Widget connectedPanel() => Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+    Wrap(spacing: 5, runSpacing: 5, children: [
+      navItem(0, Icons.home_outlined, 'Inicio'), navItem(1, Icons.tune_rounded, 'Ajustes'),
+      navItem(2, Icons.data_usage_rounded, 'Consumo'), navItem(3, Icons.shield_outlined, 'Alertas'),
+    ]),
+    const SizedBox(height: 24),
+    AnimatedSwitcher(duration: const Duration(milliseconds: 220), child: KeyedSubtree(key: ValueKey(page), child: switch (page) {
+      1 => SettingsPanel(connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
+      2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading),
+      3 => const AlertsPanel(),
+      _ => homePanel(),
+    })),
+    if (page != 0 && error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13))],
+  ]);
+
+  Widget navItem(int index, IconData icon, String label) => TextButton.icon(
+    onPressed: vpnLoading ? null : () => selectPage(index), icon: Icon(icon, size: 16), label: Text(label),
+    style: TextButton.styleFrom(foregroundColor: page == index ? forest : const Color(0xff81937e), backgroundColor: page == index ? Colors.white.withValues(alpha: .75) : Colors.transparent, padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8), textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+  );
+
+  Widget homePanel() => Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
     const Text('TU ESPACIO PRIVADO', style: TextStyle(color: green, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.9)),
     const SizedBox(height: 12), Text('Hola, $signedInAs', style: const TextStyle(fontSize: 29, color: deep, fontWeight: FontWeight.w800, letterSpacing: -.8)),
     const SizedBox(height: 9), const Text('Tu sesión está lista.', style: TextStyle(color: Color(0xFF6e7c6a), fontSize: 14)),
     const SizedBox(height: 36),
-    Center(child: Container(width: 156, height: 156, decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFeef1e5), Color(0xFFbdceb1), Color(0xFF90a98c)]), border: Border.all(color: Colors.white.withValues(alpha: .8), width: 2), boxShadow: [BoxShadow(color: deep.withValues(alpha: .15), blurRadius: 22, offset: const Offset(0, 10))]), child: const Icon(Icons.power_settings_new_rounded, size: 61, color: forest))),
+    Center(child: AnimatedContainer(duration: const Duration(milliseconds: 350), width: 156, height: 156, decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFeef1e5), Color(0xFFbdceb1), Color(0xFF90a98c)]), border: Border.all(color: Colors.white.withValues(alpha: .8), width: 2), boxShadow: [BoxShadow(color: deep.withValues(alpha: vpnConnected ? .27 : .15), blurRadius: vpnConnected ? 32 : 22, offset: const Offset(0, 10))]), child: AnimatedSwitcher(duration: const Duration(milliseconds: 250), child: connectionTransition ? const Center(key: ValueKey('loading'), child: SizedBox(width: 46, height: 46, child: CircularProgressIndicator(color: forest, strokeWidth: 3))) : const Icon(Icons.power_settings_new_rounded, key: ValueKey('power'), size: 61, color: forest)))),
     const SizedBox(height: 25),
     Center(child: Text(vpnConnected ? 'Conectado' : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
     const SizedBox(height: 8),

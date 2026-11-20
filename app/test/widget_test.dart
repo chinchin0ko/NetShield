@@ -7,17 +7,22 @@ import 'package:netshield_app/services/linux_vpn.dart';
 class FakeVpn extends LinuxVpn {
   FakeVpn(super.api);
   bool connected = false;
+  bool? lockOverride;
   String? connectedAccount;
   @override
   Future<String> deviceId() async => 'a' * 32;
   @override
-  Future<bool> isKillSwitchEnabled() async => connected;
+  Future<bool> isKillSwitchEnabled() async => lockOverride ?? connected;
+  @override
+  Future<void> setKillSwitch(bool enabled) async { lockOverride = enabled; }
+  @override
+  Future<TrafficUsage?> trafficUsage() async => connected ? const TrafficUsage(2048, 1024) : null;
   @override
   Future<bool> isConnected() async => connected;
   @override
   Future<void> connect(String token, String account) async { connected = true; connectedAccount = account; }
   @override
-  Future<void> disconnect() async { connected = false; }
+  Future<void> disconnect() async { connected = false; lockOverride = null; }
 }
 
 class FakeApi extends ApiClient {
@@ -38,6 +43,41 @@ class FakeApi extends ApiClient {
 }
 
 void main() {
+  testWidgets('Settings controls the lock and usage displays actual counters', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    final vpn = FakeVpn(api);
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Conectar'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ajustes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Kill Switch'), findsOneWidget);
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(vpn.lockOverride, isNull);
+    await tester.tap(find.text('Desactivar').last);
+    await tester.pumpAndSettle();
+    expect(vpn.lockOverride, isFalse);
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(vpn.lockOverride, isTrue);
+    await tester.tap(find.text('Consumo'));
+    await tester.pumpAndSettle();
+    expect(find.text('2.0 KB'), findsOneWidget);
+    expect(find.text('1.0 KB'), findsOneWidget);
+    await tester.tap(find.text('Alertas'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alertas personales en preparación'), findsOneWidget);
+  });
+
   testWidgets('Restored traffic lock can be disabled before login', (tester) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;

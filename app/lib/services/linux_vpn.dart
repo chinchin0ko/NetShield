@@ -3,6 +3,12 @@ import 'dart:math';
 import 'dart:convert';
 import 'api_client.dart';
 
+class TrafficUsage {
+  const TrafficUsage(this.receivedBytes, this.sentBytes);
+  final int receivedBytes;
+  final int sentBytes;
+}
+
 class LinuxVpn {
   LinuxVpn(this.api);
   final ApiClient api;
@@ -10,6 +16,43 @@ class LinuxVpn {
 
   Future<String> deviceId() => _deviceId();
   Future<bool> isKillSwitchEnabled() => File('/run/netshield-lock/active').exists();
+
+  Future<File> _endpointFile() async {
+    final home = Platform.environment['HOME'];
+    if (home == null) throw const ApiException('No se encontró tu carpeta personal.');
+    return File('$home/.local/share/netshield/vpn-endpoint');
+  }
+
+  Future<void> setKillSwitch(bool enabled) async {
+    if (!enabled) {
+      if (await isKillSwitchEnabled()) await _switch(['disable']);
+      return;
+    }
+    if (await isKillSwitchEnabled()) return;
+    if (!await isConnected()) throw const ApiException('Conecta la VPN antes de activar el bloqueo.');
+    final file = await _endpointFile();
+    if (!await file.exists()) throw const ApiException('Desconecta y vuelve a conectar la VPN para activar el bloqueo.');
+    final endpoint = (await file.readAsString()).trim();
+    if (InternetAddress.tryParse(endpoint)?.type != InternetAddressType.IPv4) throw const ApiException('La dirección del servidor VPN es inválida.');
+    final id = await _deviceId();
+    await _switch(['enable', 'ns${id.substring(0, 12)}', endpoint]);
+  }
+
+  Future<TrafficUsage?> trafficUsage() async {
+    if (!await isConnected()) return null;
+    final id = await _deviceId();
+    final base = '/sys/class/net/ns${id.substring(0, 12)}/statistics';
+    try {
+      final received = int.parse((await File('$base/rx_bytes').readAsString()).trim());
+      final sent = int.parse((await File('$base/tx_bytes').readAsString()).trim());
+      if (received < 0 || sent < 0) return null;
+      return TrafficUsage(received, sent);
+    } on FileSystemException {
+      return null;
+    } on FormatException {
+      return null;
+    }
+  }
 
   Future<void> _switch(List<String> arguments) async {
     const packaged = '/usr/lib/netshield/netshield-killswitch';
@@ -145,6 +188,9 @@ class LinuxVpn {
     if (endpoint == null || InternetAddress.tryParse(endpoint)?.type != InternetAddressType.IPv4) {
       throw const ApiException('La dirección del servidor VPN es inválida.');
     }
+    final endpointFile = await _endpointFile();
+    await endpointFile.writeAsString(endpoint, flush: true);
+    await Process.run('chmod', ['600', endpointFile.path]);
     final temp = await Directory.systemTemp.createTemp('netshield-');
     try {
       await _keepDevelopmentTunnel(config);
