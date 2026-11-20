@@ -162,3 +162,22 @@ def test_coordinator_commits_fail_closed_history_and_serializes_mutations(lab_da
     with database() as conn:
         rows = conn.execute('SELECT valid_from, valid_until FROM vpn_address_assignments ORDER BY id').fetchall()
     assert len(rows) == 2 and all(end is not None and start < end for start, end in rows)
+
+
+def test_personal_alerts_isolate_accounts_and_deduplicate(lab_database):
+    import json
+    from datetime import datetime, timezone
+    from app.application.personal_alerts import ingest_personal_alert
+    from app.infrastructure.assignments import PostgresAssignments
+    from app.infrastructure.personal_alerts import PostgresPersonalAlerts
+    from app.infrastructure.postgres import database
+    with database() as conn:
+        conn.execute('INSERT INTO vpn_address_assignments (address,user_id,device_id,valid_from) VALUES (%s,%s,%s,%s)',
+                     ('10.8.0.2', 1, 'a'*32, datetime(2026, 1, 1, tzinfo=timezone.utc)))
+    alert = {'event_type': 'alert', 'timestamp': '2026-01-01T00:01:00Z', 'src_ip': '10.8.0.2', 'dest_ip': '1.1.1.1',
+             'alert': {'signature': 'Synthetic test', 'severity': 2}}
+    repo = PostgresPersonalAlerts()
+    assert ingest_personal_alert(json.dumps(alert), PostgresAssignments(), repo, evidence_trusted=True)
+    assert not ingest_personal_alert(json.dumps(alert), PostgresAssignments(), repo, evidence_trusted=True)
+    assert len(repo.list_for_user(1)) == 1
+    assert repo.list_for_user(2) == []
