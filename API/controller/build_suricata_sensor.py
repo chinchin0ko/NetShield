@@ -1,36 +1,62 @@
 #!/usr/bin/env python3
-"""Build a bounded, alert-only Suricata configuration for the VPN sensor."""
+"""Build a bounded, balanced, alert-only Suricata configuration."""
 import argparse
+import hashlib
 import re
 from pathlib import Path
 import yaml
 
+CATEGORIES = ('MALWARE', 'TROJAN', 'EXPLOIT', 'CNC', 'PHISHING')
+SIGNATURE = re.compile(r'\bmsg:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', re.I)
+SID = re.compile(r'\bsid:\s*(\d+)\s*;', re.I)
+# Select rules that can be evaluated independently of rules outside this subset.
+STATE_DEPENDENCY = re.compile(r'\b(?:flowbits|xbits):\s*(?:isset|isnotset)\b|\b(?:flowbits|xbits):\s*noalert\b', re.I)
+TEST_RULE = 'alert dns any any -> any any (msg:"NETSHIELD MALWARE TEST simulated indicator"; dns.query; content:"netshield-sensor-test.invalid"; nocase; sid:9900099; rev:1;)'
+
 
 def build(source_config, source_rules, output_dir, rule_limit=3000):
+    if not 1 <= rule_limit <= 10000:
+        raise ValueError('invalid rule limit')
     config = yaml.safe_load(source_config.read_text())
     if not isinstance(config, dict) or not isinstance(config.get('outputs'), list):
         raise ValueError('invalid Suricata configuration')
-    chosen = []
-    signature = re.compile(r'\bmsg:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', re.I)
+    categories = {name: [] for name in CATEGORIES}
+    seen = set()
     for rule in source_rules.read_text(errors='strict').splitlines():
-        if not rule.startswith('alert '):
+        if not rule.startswith('alert ') or STATE_DEPENDENCY.search(rule):
             continue
-        match = signature.search(rule)
-        if match and re.search(r'\b(MALWARE|TROJAN|EXPLOIT)\b', match.group(1), re.I):
-            chosen.append(rule)
-            if len(chosen) >= rule_limit:
-                break
+        message, sid = SIGNATURE.search(rule), SID.search(rule)
+        if not message or not sid:
+            continue
+        match = re.search(r'\b(' + '|'.join(CATEGORIES) + r')\b', message.group(1), re.I)
+        if not match:
+            continue
+        value = int(sid.group(1))
+        if value == 9900099 or value in seen:
+            raise ValueError('duplicate or reserved rule SID')
+        seen.add(value)
+        categories[match.group(1).upper()].append((hashlib.sha256(str(value).encode()).digest(), rule))
+    for rules in categories.values():
+        rules.sort(key=lambda item: item[0])
+    chosen = []
+    while len(chosen) < rule_limit:
+        added = False
+        for category in CATEGORIES:
+            if categories[category] and len(chosen) < rule_limit:
+                chosen.append(categories[category].pop()[1])
+                added = True
+        if not added:
+            break
     if not chosen:
         raise ValueError('no matching rules')
     output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    chosen.append('alert dns any any -> any any (msg:"NETSHIELD MALWARE TEST simulated indicator"; dns.query; content:"netshield-sensor-test.invalid"; nocase; sid:9900099; rev:1;)')
-    (output_dir / 'rules.rules').write_text('\n'.join(chosen) + '\n')
+    (output_dir / 'rules.rules').write_text('\n'.join(chosen + [TEST_RULE]) + '\n')
     config['outputs'] = [{'eve-log': {'enabled': True, 'filetype': 'regular',
                                       'filename': 'eve.json', 'types': [{'alert': {'payload': False, 'packet': False}}]}}]
     config['stats'] = {'enabled': False}
     config['threading'] = {'set-cpu-affinity': False}
     (output_dir / 'suricata.yaml').write_text('%YAML 1.1\n---\n' + yaml.safe_dump(config, sort_keys=False))
-    return len(chosen) - 1
+    return len(chosen)
 
 
 if __name__ == '__main__':
