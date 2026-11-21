@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'dart:async';
 import 'dart:io';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'services/api_client.dart';
 import 'services/linux_vpn.dart';
 import 'services/android_vpn.dart';
@@ -82,6 +83,26 @@ class _ShieldHomeState extends State<ShieldHome> {
   @override
   void initState() {
     super.initState();
+    if (Platform.isLinux) {
+      const MethodChannel('netshield/linux_tray').setMethodCallHandler((call) async {
+        if (call.method != 'disconnectAndQuit') throw MissingPluginException();
+        if (vpnLoading) throw PlatformException(code: 'busy');
+        setState(() { vpnLoading = true; error = null; });
+        try {
+          if (await vpn.isConnected() || await vpn.isKillSwitchEnabled()) {
+            await vpn.disconnect();
+          }
+          if (await vpn.isConnected() || await vpn.isKillSwitchEnabled()) {
+            throw const ApiException('La VPN o el bloqueo siguen activos.');
+          }
+        } catch (_) {
+          if (mounted) setState(() => error = 'No se pudo desconectar la VPN y desactivar el bloqueo.');
+          throw PlatformException(code: 'disconnect_failed');
+        } finally {
+          if (mounted) setState(() => vpnLoading = false);
+        }
+      });
+    }
     vpn.isKillSwitchEnabled().then((blocked) {
       if (mounted) setState(() => trafficBlocked = blocked);
     }).catchError((_) {});
@@ -100,7 +121,7 @@ class _ShieldHomeState extends State<ShieldHome> {
   }
 
   @override
-  void dispose() { push.dispose(); monitor?.cancel(); alertsTimer?.cancel(); gatewayCooldown?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
+  void dispose() { if (Platform.isLinux) { const MethodChannel('netshield/linux_tray').setMethodCallHandler(null); } push.dispose(); monitor?.cancel(); alertsTimer?.cancel(); gatewayCooldown?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
 
   Future<void> signIn() async {
     if (loading) return;

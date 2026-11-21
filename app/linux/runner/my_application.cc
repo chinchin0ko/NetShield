@@ -9,6 +9,8 @@ struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
   AppIndicator* indicator;
+  FlMethodChannel* tray_channel;
+  GtkWindow* window;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -33,24 +35,64 @@ static gboolean tray_available() {
   return available;
 }
 
+static void restore_window(MyApplication* self) {
+  gtk_window_set_skip_taskbar_hint(self->window, FALSE);
+  gtk_window_present(self->window);
+  app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_PASSIVE);
+}
+
 static void show_window(GtkMenuItem*, gpointer data) {
-  gtk_window_present(GTK_WINDOW(data));
+  restore_window(MY_APPLICATION(data));
 }
 
 static void quit_application(GtkMenuItem*, gpointer data) {
   g_application_quit(G_APPLICATION(data));
 }
 
-static gboolean on_window_close(GtkWidget* window, GdkEvent*, gpointer) {
-  if (tray_available()) {
-    gtk_widget_hide(window);
-  } else {
-    gtk_window_iconify(GTK_WINDOW(window));
+static void quit_all_finished(GObject* source, GAsyncResult* result, gpointer data) {
+  MyApplication* self = MY_APPLICATION(data);
+  g_autoptr(GError) error = nullptr;
+  g_autoptr(FlMethodResponse) response = fl_method_channel_invoke_method_finish(
+      FL_METHOD_CHANNEL(source), result, &error);
+  if (response != nullptr && FL_IS_METHOD_SUCCESS_RESPONSE(response)) {
+    g_application_quit(G_APPLICATION(self));
+    return;
   }
+  restore_window(self);
+  GtkWidget* dialog = gtk_message_dialog_new(self->window, GTK_DIALOG_MODAL,
+      GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
+      "No se pudo desconectar la VPN y desactivar el bloqueo. La aplicación seguirá abierta; revisa su estado e inténtalo de nuevo.");
+  g_signal_connect(dialog, "response", G_CALLBACK(gtk_widget_destroy), nullptr);
+  gtk_widget_show(dialog);
+}
+
+static void quit_all(GtkMenuItem*, gpointer data) {
+  MyApplication* self = MY_APPLICATION(data);
+  fl_method_channel_invoke_method(self->tray_channel, "disconnectAndQuit", nullptr,
+                                  nullptr, quit_all_finished, self);
+}
+
+static gboolean on_window_close(GtkWidget* window, GdkEvent*, gpointer data) {
+  MyApplication* self = MY_APPLICATION(data);
+  if (tray_available()) {
+    app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_ACTIVE);
+    gtk_window_set_skip_taskbar_hint(GTK_WINDOW(window), TRUE);
+  }
+  gtk_window_iconify(GTK_WINDOW(window));
   return TRUE;
 }
 
-static void setup_indicator(MyApplication* self, GtkWindow* window) {
+static gboolean on_window_state(GtkWidget*, GdkEventWindowState* event, gpointer data) {
+  MyApplication* self = MY_APPLICATION(data);
+  if ((event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) &&
+      !(event->new_window_state & GDK_WINDOW_STATE_ICONIFIED)) {
+    gtk_window_set_skip_taskbar_hint(self->window, FALSE);
+    app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_PASSIVE);
+  }
+  return FALSE;
+}
+
+static void setup_indicator(MyApplication* self) {
   G_GNUC_BEGIN_IGNORE_DEPRECATIONS
   self->indicator = app_indicator_new("netshield-vpn", "netshield",
                                       APP_INDICATOR_CATEGORY_APPLICATION_STATUS);
@@ -58,14 +100,17 @@ static void setup_indicator(MyApplication* self, GtkWindow* window) {
   GtkWidget* menu = gtk_menu_new();
   GtkWidget* open = gtk_menu_item_new_with_label("Abrir NetShield");
   GtkWidget* quit = gtk_menu_item_new_with_label("Salir de la aplicación (mantener VPN)");
-  g_signal_connect(open, "activate", G_CALLBACK(show_window), window);
+  GtkWidget* quit_everything = gtk_menu_item_new_with_label("Desconectar VPN y salir");
+  g_signal_connect(open, "activate", G_CALLBACK(show_window), self);
   g_signal_connect(quit, "activate", G_CALLBACK(quit_application), self);
+  g_signal_connect(quit_everything, "activate", G_CALLBACK(quit_all), self);
   gtk_menu_shell_append(GTK_MENU_SHELL(menu), open);
   gtk_menu_shell_append(GTK_MENU_SHELL(menu), quit);
+  gtk_menu_shell_append(GTK_MENU_SHELL(menu), quit_everything);
   gtk_widget_show_all(menu);
   app_indicator_set_menu(self->indicator, GTK_MENU(menu));
   app_indicator_set_title(self->indicator, "NetShield VPN");
-  app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_ACTIVE);
+  app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_PASSIVE);
 }
 
 // Implements GApplication::activate.
@@ -73,7 +118,7 @@ static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GList* windows = gtk_application_get_windows(GTK_APPLICATION(application));
   if (windows != nullptr) {
-    gtk_window_present(GTK_WINDOW(windows->data));
+    restore_window(self);
     return;
   }
 
@@ -92,14 +137,20 @@ static void my_application_activate(GApplication* application) {
 
   gtk_window_set_title(window, "NetShield VPN");
   gtk_window_set_icon_name(window, "netshield");
-  setup_indicator(self, window);
-  g_signal_connect(window, "delete-event", G_CALLBACK(on_window_close), nullptr);
+  self->window = window;
+  setup_indicator(self);
+  g_signal_connect(window, "delete-event", G_CALLBACK(on_window_close), self);
+  g_signal_connect(window, "window-state-event", G_CALLBACK(on_window_state), self);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
 
   FlView* view = fl_view_new(project);
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->tray_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "netshield/linux_tray", FL_METHOD_CODEC(codec));
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000
   // for transparent.
@@ -163,6 +214,7 @@ static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_object(&self->indicator);
+  g_clear_object(&self->tray_channel);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 
