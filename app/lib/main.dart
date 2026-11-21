@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'services/api_client.dart';
 import 'services/linux_vpn.dart';
+import 'services/desktop_notifications.dart';
 import 'screens/dashboard_panels.dart';
 
 const cream = Color(0xFFdad7cd);
@@ -14,22 +15,24 @@ const deep = Color(0xFF344e41);
 void main() => runApp(const NetShieldApp());
 
 class NetShieldApp extends StatelessWidget {
-  const NetShieldApp({super.key, this.api, this.vpn});
+  const NetShieldApp({super.key, this.api, this.vpn, this.notifier});
   final ApiClient? api;
   final LinuxVpn? vpn;
+  final AlertNotifier? notifier;
   @override
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
     title: 'NetShield VPN',
     theme: ThemeData(useMaterial3: true, fontFamily: 'sans-serif', colorScheme: ColorScheme.fromSeed(seedColor: green)),
-    home: ShieldHome(api: api ?? ApiClient(), vpn: vpn),
+    home: ShieldHome(api: api ?? ApiClient(), vpn: vpn, notifier: notifier),
   );
 }
 
 class ShieldHome extends StatefulWidget {
-  const ShieldHome({super.key, required this.api, this.vpn});
+  const ShieldHome({super.key, required this.api, this.vpn, this.notifier});
   final ApiClient api;
   final LinuxVpn? vpn;
+  final AlertNotifier? notifier;
   @override
   State<ShieldHome> createState() => _ShieldHomeState();
 }
@@ -66,6 +69,7 @@ class _ShieldHomeState extends State<ShieldHome> {
   String? alertsError;
   String alertMonitoring = 'not_active';
   late final LinuxVpn vpn = widget.vpn ?? LinuxVpn(widget.api);
+  late final AlertNotifier notifier = widget.notifier ?? LinuxAlertNotifier();
   Timer? monitor;
   String? error, notice, token, signedInAs;
 
@@ -197,10 +201,13 @@ class _ShieldHomeState extends State<ShieldHome> {
     }
   }
 
-  void applyAlertFeed(SecurityAlertFeed result) {
+  int applyAlertFeed(SecurityAlertFeed result) {
+    var newCount = 0;
     final ids = result.alerts.map((item) => item['id'] as int).toList();
     if (alertsInitialized) {
-      unseenAlertIds.addAll(ids.where((id) => id > lastAlertId));
+      final newIds = ids.where((id) => id > lastAlertId).toSet();
+      newCount = newIds.length;
+      unseenAlertIds.addAll(newIds);
     }
     for (final id in ids) {
       if (id > lastAlertId) lastAlertId = id;
@@ -209,6 +216,13 @@ class _ShieldHomeState extends State<ShieldHome> {
     alerts = result.alerts;
     alertMonitoring = result.monitoring;
     alertsError = null;
+    return newCount;
+  }
+
+  void receiveAlertFeed(SecurityAlertFeed result) {
+    var newCount = 0;
+    setState(() => newCount = applyAlertFeed(result));
+    if (newCount > 0) unawaited(notifier.notifyNewAlerts(newCount));
   }
 
   Future<void> refreshAlerts({bool background = false}) async {
@@ -218,7 +232,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     setState(() { alertsChecking = true; alertsLoading = !background || alerts == null; alertsError = null; });
     try {
       final result = await widget.api.securityAlerts(current);
-      if (mounted && token == current && alertSession == session) setState(() => applyAlertFeed(result));
+      if (mounted && token == current && alertSession == session) receiveAlertFeed(result);
     } catch (_) {
       if (mounted && token == current && alertSession == session) setState(() => alertsError = 'No se pudieron actualizar las alertas. Reintentaremos automáticamente.');
     } finally {
@@ -234,7 +248,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     try {
       await widget.api.reviewAlert(current, id, status);
       final result = await widget.api.securityAlerts(current);
-      if (mounted && token == current && alertSession == session) setState(() => applyAlertFeed(result));
+      if (mounted && token == current && alertSession == session) receiveAlertFeed(result);
     } catch (_) {
       if (mounted && token == current && alertSession == session) setState(() => alertsError = 'No se pudo guardar la revisión. Inténtalo de nuevo.');
     } finally {

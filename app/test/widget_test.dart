@@ -3,6 +3,13 @@ import 'package:material_ui/material_ui.dart';
 import 'package:netshield_app/main.dart';
 import 'package:netshield_app/services/api_client.dart';
 import 'package:netshield_app/services/linux_vpn.dart';
+import 'package:netshield_app/services/desktop_notifications.dart';
+
+class FakeNotifier implements AlertNotifier {
+  final List<int> counts = [];
+  @override
+  Future<void> notifyNewAlerts(int count) async => counts.add(count);
+}
 
 class FakeVpn extends LinuxVpn {
   FakeVpn(super.api);
@@ -210,7 +217,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final api = FakeApi();
-    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api)));
+    final notifier = FakeNotifier();
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api), notifier: notifier));
     await tester.enterText(find.byType(TextField).at(0), 'demo');
     await tester.enterText(find.byType(TextField).at(1), 'password');
     await tester.tap(find.text('Entrar a NetShield'));
@@ -218,12 +226,14 @@ void main() {
     await tester.tap(find.text('Alertas'));
     await tester.pumpAndSettle();
     expect(find.text('Aún no hay alertas guardadas.'), findsOneWidget);
+    expect(notifier.counts, isEmpty);
     api.showAlert = true;
     await tester.pump(const Duration(seconds: 15));
     await tester.pump();
     expect(find.text('ET MALWARE indicador detectado'), findsOneWidget);
     expect(find.text('Tienes una alerta nueva.'), findsOneWidget);
     expect(find.text('Alertas · 1'), findsOneWidget);
+    expect(notifier.counts, [1]);
     await tester.tap(find.text('Entendido'));
     await tester.pump();
     expect(find.text('Tienes una alerta nueva.'), findsNothing);
@@ -232,11 +242,13 @@ void main() {
     await tester.pump();
     expect(api.alertRequests, greaterThan(before));
     expect(find.text('Tienes una alerta nueva.'), findsNothing);
+    expect(notifier.counts, [1]);
     api.alertsFail = true;
     await tester.tap(find.text('Actualizar'));
     await tester.pump();
     expect(find.text('ET MALWARE indicador detectado'), findsOneWidget);
     expect(find.textContaining('No se pudieron actualizar las alertas'), findsOneWidget);
+    expect(notifier.counts, [1]);
   });
 
   testWidgets('Connected orb pulses and the disconnect action is red', (tester) async {
