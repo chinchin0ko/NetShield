@@ -54,3 +54,15 @@ def test_internal_ingest_requires_explicit_enable_and_validates_batch(monkeypatc
     assert len(saved) == 1
     response = client.post('/internal/suricata/alerts', json={'events': [alert(), {'event_type': 'dns'}]})
     assert response.status_code == 422 and len(saved) == 1
+
+
+def test_vpn_collector_keeps_phishing_and_command_control_alerts(tmp_path):
+    path = tmp_path / 'eve.json'
+    path.write_text(''.join(json.dumps(alert(name)) + '\n' for name in [
+        'ET PHISHING example', 'ET CNC example', 'ET MALWARE example', 'ET SCAN unrelated']))
+    cursor = {'inode': path.stat().st_ino, 'offset': 0}
+    _, old_feed = scan(path, cursor)
+    _, vpn_feed = scan(path, cursor, include_network_threats=True)
+    assert [item['alert']['signature'] for item in old_feed] == ['ET MALWARE example']
+    assert [item['alert']['signature'] for item in vpn_feed] == [
+        'ET PHISHING example', 'ET CNC example', 'ET MALWARE example']

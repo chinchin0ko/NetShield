@@ -264,3 +264,29 @@ def test_usage_history_isolated_and_reset_gaps(lab_database, monkeypatch):
     assert collect_samples() == (2, 0)
     days = client.get('/vpn/usage/history', headers=headers).json()['days']
     assert days[0]['upload_bytes'] == 50 and days[0]['download_bytes'] == 80
+
+
+
+def test_alert_review_requires_owner_and_preserves_classification(lab_database):
+    from app.infrastructure.postgres import database
+    with database() as conn:
+        alert_id = conn.execute("INSERT INTO personal_security_alerts (event_hash,user_id,device_id,occurred_at,signature,severity) VALUES (%s,1,%s,now(),'test',2) RETURNING id", ('f' * 64, 'a' * 32)).fetchone()[0]
+    client = TestClient(app)
+    def login(username, password):
+        token = client.post('/auth/token', json={'username': username, 'password': password}).json()['access_token']
+        return {'Authorization': 'Bearer ' + token}
+    first = login('integration-user', 'test passphrase 1234')
+    second = login('second-user', 'second passphrase 1234')
+    path = f'/security/alerts/{alert_id}/review'
+    assert client.post(path, json={'status': 'reviewed'}).status_code == 401
+    assert client.post(path, headers=second, json={'status': 'false_positive'}).status_code == 404
+    assert client.post(path, headers=first, json={'status': 'invalid'}).status_code == 422
+    assert client.post(path, headers=first, json={'status': 'false_positive'}).status_code == 204
+    alert = client.get('/security/alerts', headers=first).json()['alerts'][0]
+    assert alert['id'] == alert_id and alert['review_status'] == 'false_positive' and alert['reviewed_at']
+    assert client.get('/security/alerts', headers=second).json()['alerts'] == []
+    assert client.post(path, headers=first, json={'status': 'new'}).status_code == 204
+    assert client.get('/security/alerts', headers=first).json()['alerts'][0]['reviewed_at'] is None
+    with database() as conn:
+        reviews = conn.execute('SELECT status FROM personal_alert_reviews WHERE alert_id = %s ORDER BY id', (alert_id,)).fetchall()
+    assert reviews == [('false_positive',), ('new',)]

@@ -56,7 +56,7 @@ class ApiClient {
     return const ApiException('No se pudo conectar con la API. Comprueba tu conexión e inténtalo otra vez.');
   }
 
-  Future<dynamic> _authorized(String token, String method, String path) async {
+  Future<dynamic> _authorized(String token, String method, String path, {Map<String, dynamic>? payload}) async {
     final isLoopback = baseUrl.host == '127.0.0.1' || baseUrl.host == 'localhost' || baseUrl.host == '::1';
     if (baseUrl.scheme != 'https' && !(baseUrl.scheme == 'http' && isLoopback)) throw const ApiException('La dirección de la API debe usar HTTPS.');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
@@ -64,6 +64,7 @@ class ApiClient {
       final request = await client.openUrl(method, await _url(path));
       request.followRedirects = false;
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
+      if (payload != null) { request.headers.contentType = ContentType.json; request.write(jsonEncode(payload)); }
       final response = await request.close().timeout(const Duration(seconds: 25));
       final body = await utf8.decoder.bind(response).join();
       if (response.statusCode == 401) throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
@@ -125,12 +126,17 @@ class ApiClient {
     }
     final alerts = <Map<String, dynamic>>[];
     for (final item in result['alerts'] as List) {
-      if (item is! Map || item['device_id'] is! String || !RegExp(r'^[0-9a-f]{32}$').hasMatch(item['device_id'] as String) || item['occurred_at'] is! String || item['signature'] is! String || item['severity'] is! int) {
+      if (item is! Map || item['device_id'] is! String || !RegExp(r'^[0-9a-f]{32}$').hasMatch(item['device_id'] as String) || item['occurred_at'] is! String || item['signature'] is! String || item['severity'] is! int || item['id'] is! int || (item['id'] as int) <= 0 || !['new', 'reviewed', 'false_positive'].contains(item['review_status'])) {
         throw const ApiException('Los datos de alertas son inválidos.');
       }
       alerts.add(Map<String, dynamic>.from(item));
     }
     return SecurityAlertFeed(alerts, result['monitoring'] as String);
+  }
+
+  Future<void> reviewAlert(String token, int id, String status) async {
+    if (id <= 0 || !['new', 'reviewed', 'false_positive'].contains(status)) throw const ApiException('La revisión es inválida.');
+    await _authorized(token, 'POST', '/security/alerts/$id/review', payload: {'status': status});
   }
 
   Future<void> createTestAlert(String token) async {

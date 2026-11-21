@@ -4,10 +4,10 @@ Cliente de desarrollo en Flutter para Linux. Incluye inicio de sesión y conexi�
 
 ## Paquete de prueba para Arch Linux x86_64
 
-`dist/netshield-vpn-dev-0.1.0-13-x86_64.pkg.tar.zst` se genera localmente con `./scripts/package-arch.sh` después de `flutter build linux --release`. El equipo de compilación necesita Flutter y `makepkg`; quien instala el paquete no necesita Flutter ni el código fuente. El paquete declara sus dependencias de Arch y se instala con:
+`dist/netshield-vpn-dev-0.1.0-14-x86_64.pkg.tar.zst` se genera localmente con `./scripts/package-arch.sh` después de `flutter build linux --release`. El equipo de compilación necesita Flutter y `makepkg`; quien instala el paquete no necesita Flutter ni el código fuente. El paquete declara sus dependencias de Arch y se instala con:
 
 ```bash
-sudo pacman -U ./dist/netshield-vpn-dev-0.1.0-13-x86_64.pkg.tar.zst
+sudo pacman -U ./dist/netshield-vpn-dev-0.1.0-14-x86_64.pkg.tar.zst
 ```
 
 Abre **NetShield VPN** desde el menú o ejecuta `netshield-vpn`. Es necesario tener NetworkManager activo y un agente gráfico de polkit. Puedes crear una cuenta desde la aplicación. Para retirar el paquete, desconecta primero la VPN y desactiva el bloqueo desde la aplicación; después ejecuta `sudo pacman -R netshield-vpn-dev`. Esto no elimina las claves privadas o el identificador guardados en `~/.local/share/netshield/`.

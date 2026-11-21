@@ -108,17 +108,18 @@ class _UsageCard extends StatelessWidget {
 }
 
 class AlertsPanel extends StatelessWidget {
-  const AlertsPanel({super.key, required this.alerts, required this.monitoring, required this.loading, required this.error, required this.onTest, required this.onRefresh});
+  const AlertsPanel({super.key, required this.alerts, required this.monitoring, required this.loading, required this.error, required this.onTest, required this.onRefresh, required this.onReview});
   final List<Map<String, dynamic>>? alerts;
   final bool loading;
   final String monitoring;
   final String? error;
   final VoidCallback onTest, onRefresh;
+  final void Function(int, String) onReview;
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     const PanelHeading('CENTRO DE SEGURIDAD', 'Alertas y amenazas', 'Consulta las alertas asociadas a tu cuenta.'),
     const SizedBox(height: 20),
-    SoftCard(child: Text(monitoring == 'experimental' ? 'Detección experimental activa con reglas limitadas. No detecta todas las amenazas.' : 'Detección no disponible. Puedes generar una alerta simulada para probar el panel.', style: const TextStyle(color: _muted, fontSize: 12, height: 1.4))),
+    SoftCard(child: Text(monitoring == 'experimental' ? 'Sensor comunicado recientemente. Las alertas son indicios y requieren revisión.' : 'Sensor no disponible. Las alertas guardadas siguen visibles.', style: const TextStyle(color: _muted, fontSize: 12, height: 1.4))),
     const SizedBox(height: 12),
     Wrap(spacing: 8, children: [FilledButton(onPressed: loading ? null : onTest, child: const Text('Generar alerta de prueba')), TextButton(onPressed: loading ? null : onRefresh, child: const Text('Actualizar'))]),
     if (loading) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
@@ -127,6 +128,14 @@ class AlertsPanel extends StatelessWidget {
     if (alerts != null) ...alerts!.map((item) => Padding(padding: const EdgeInsets.only(top: 8), child: SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(item['signature'] as String, style: const TextStyle(color: _ink, fontWeight: FontWeight.w800)),
       const SizedBox(height: 6), Text('Dispositivo ${(item['device_id'] as String).substring(0, 8)} · ${item['occurred_at']}', style: const TextStyle(color: _muted, fontSize: 12)),
+      const SizedBox(height: 8),
+      Text(switch (item['review_status']) { 'reviewed' => 'Marcada como revisada', 'false_positive' => 'Marcada como posible falso positivo', _ => 'Pendiente de revisar' }, style: const TextStyle(color: _green, fontSize: 12)),
+      const SizedBox(height: 4),
+      Wrap(spacing: 8, children: [
+        TextButton(onPressed: loading ? null : () => onReview(item['id'] as int, 'reviewed'), child: const Text('Revisada')),
+        TextButton(onPressed: loading ? null : () => onReview(item['id'] as int, 'false_positive'), child: const Text('Posible falso positivo')),
+        if (item['review_status'] != 'new') TextButton(onPressed: loading ? null : () => onReview(item['id'] as int, 'new'), child: const Text('Pendiente')),
+      ]),
     ])))),
   ]);
 }

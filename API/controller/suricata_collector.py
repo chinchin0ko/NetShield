@@ -18,14 +18,15 @@ PKI = Path('/etc/netshield-proxy-client')
 MAX_LINE = 256 * 1024
 
 
-def relevant(line):
+def relevant(line, *, include_network_threats=False):
     try:
         event = json.loads(line)
         alert = event.get('alert', {})
         signature = alert.get('signature', '')
         if event.get('event_type') != 'alert' or not isinstance(signature, str):
             return None
-        if not any(label in signature.upper() for label in ('MALWARE', 'TROJAN', 'EXPLOIT')):
+        labels = ('MALWARE', 'TROJAN', 'EXPLOIT', 'CNC', 'PHISHING') if include_network_threats else ('MALWARE', 'TROJAN', 'EXPLOIT')
+        if not any(re.search(r'\b' + label + r'\b', signature.upper()) for label in labels):
             return None
         severity = alert['severity']
         timestamp = event['timestamp']
@@ -46,7 +47,7 @@ def relevant(line):
         return None
 
 
-def scan(path, cursor, limit=500):
+def scan(path, cursor, limit=500, *, include_network_threats=False):
     events = []
     with path.open('rb') as source:
         stat = os.fstat(source.fileno())
@@ -71,7 +72,7 @@ def scan(path, cursor, limit=500):
                     break
                 continue
             if len(line) <= MAX_LINE:
-                event = relevant(line)
+                event = relevant(line, include_network_threats=include_network_threats)
                 if event is not None:
                     events.append(event)
                     if len(events) == 25:

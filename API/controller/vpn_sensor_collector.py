@@ -56,7 +56,7 @@ def main():
             if not healthy():
                 time.sleep(10)
                 continue
-            next_cursor, events = common.scan(EVE, cursor)
+            next_cursor, events = common.scan(EVE, cursor, include_network_threats=True)
             send(events)  # Empty batches are a heartbeat, never a detection.
             next_cursor = truncate_consumed(EVE, next_cursor)
             if next_cursor != cursor:

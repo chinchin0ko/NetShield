@@ -37,11 +37,14 @@ class FakeApi extends ApiClient {
   final bool fail;
   bool revoked = false;
   bool testAlert = false;
+  String reviewStatus = 'new';
   bool manyAlerts = false;
   @override
-  Future<SecurityAlertFeed> securityAlerts(String token) async => SecurityAlertFeed(manyAlerts ? List.generate(20, (i) => {"device_id": "a" * 32, "signature": "Alerta $i", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}) : testAlert ? [{"device_id": "a" * 32, "signature": "PRUEBA: alerta simulada de NetShield", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}] : [], "not_active");
+  Future<SecurityAlertFeed> securityAlerts(String token) async => SecurityAlertFeed(manyAlerts ? List.generate(20, (i) => {"id": i + 1, "review_status": "new", "device_id": "a" * 32, "signature": "Alerta $i", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}) : testAlert ? [{"id": 1, "review_status": reviewStatus, "device_id": "a" * 32, "signature": "PRUEBA: alerta simulada de NetShield", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}] : [], "not_active");
   @override
   Future<void> createTestAlert(String token) async { testAlert = true; }
+  @override
+  Future<void> reviewAlert(String token, int id, String status) async { reviewStatus = status; }
   @override
   Future<List<Map<String, dynamic>>> vpnDevices(String token) async => [{'device_id': 'b' * 32, 'enabled': true}];
   @override
@@ -95,10 +98,14 @@ void main() {
     expect(find.text('Enviado 1.0 KB · Recibido 2.0 KB · datos incompletos'), findsOneWidget);
     await tester.tap(find.text('Alertas'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Detección no disponible'), findsOneWidget);
+    expect(find.textContaining('Sensor no disponible'), findsOneWidget);
     await tester.tap(find.text('Generar alerta de prueba'));
     await tester.pumpAndSettle();
     expect(find.text('PRUEBA: alerta simulada de NetShield'), findsOneWidget);
+    await tester.ensureVisible(find.text('Posible falso positivo'));
+    await tester.tap(find.text('Posible falso positivo'));
+    await tester.pumpAndSettle();
+    expect(find.text('Marcada como posible falso positivo'), findsOneWidget);
   });
 
   testWidgets('Navigation stays fixed while only dashboard content scrolls', (tester) async {

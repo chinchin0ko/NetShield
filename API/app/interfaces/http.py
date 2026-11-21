@@ -3,6 +3,7 @@ import psycopg
 import os
 import re
 import json
+from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Response, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -222,6 +223,24 @@ def personal_security_alerts(response: Response, user=Depends(current_identity))
         raise HTTPException(status_code=503, detail='Alerts unavailable') from None
     response.headers['Cache-Control'] = 'no-store'
     return {'alerts': alerts, 'monitoring': monitoring}
+
+
+class AlertReview(BaseModel):
+    status: Literal['new', 'reviewed', 'false_positive']
+
+
+@router.post('/security/alerts/{alert_id}/review', status_code=204)
+def review_personal_alert(alert_id: int, review: AlertReview, response: Response, user=Depends(current_identity)):
+    from app.infrastructure.personal_alerts import PostgresPersonalAlerts
+    if alert_id <= 0 or alert_id > 9223372036854775807:
+        raise HTTPException(status_code=404, detail='Alert not found')
+    try:
+        found = PostgresPersonalAlerts().review_for_user(user.id, alert_id, review.status)
+    except (psycopg.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='Alert review unavailable') from None
+    if not found:
+        raise HTTPException(status_code=404, detail='Alert not found')
+    response.headers['Cache-Control'] = 'no-store'
 
 
 @router.post('/security/alerts/test', status_code=201)

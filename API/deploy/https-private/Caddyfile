@@ -7,7 +7,7 @@ api.netshield.lat {
     request_body {
         max_size 16KB
     }
-    @api path /auth/register /auth/token /users/me /vpn/config /vpn/devices /vpn/devices/*/revoke /vpn/usage /vpn/usage/history /security/alerts /security/alerts/test
+    @api path /auth/register /auth/token /users/me /vpn/config /vpn/devices /vpn/devices/*/revoke /vpn/usage /vpn/usage/history /security/alerts /security/alerts/test /security/alerts/*/review
     handle @api {
         reverse_proxy https://10.0.0.250:18443 {
             header_up X-NetShield-Client-IP {http.request.remote.host}

@@ -202,6 +202,21 @@ class _ShieldHomeState extends State<ShieldHome> {
     }
   }
 
+  Future<void> reviewAlert(int id, String status) async {
+    if (alertsLoading || token == null) return;
+    final current = token!;
+    setState(() { alertsLoading = true; alertsError = null; });
+    try {
+      await widget.api.reviewAlert(current, id, status);
+      final result = await widget.api.securityAlerts(current);
+      if (mounted && token == current) setState(() { alerts = result.alerts; alertMonitoring = result.monitoring; });
+    } catch (_) {
+      if (mounted && token == current) setState(() => alertsError = 'No se pudo guardar la revisión. Inténtalo de nuevo.');
+    } finally {
+      if (mounted && token == current) setState(() => alertsLoading = false);
+    }
+  }
+
   Future<void> createTestAlert() async {
     if (alertsLoading || token == null) return;
     final current = token!;
@@ -456,7 +471,7 @@ class _ShieldHomeState extends State<ShieldHome> {
               switch (page) {
                 1 => SettingsPanel(connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
                 2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable, history: usageHistory, historyUnavailable: historyUnavailable),
-                3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, error: alertsError, onTest: createTestAlert, onRefresh: refreshAlerts),
+                3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, error: alertsError, onTest: createTestAlert, onRefresh: refreshAlerts, onReview: reviewAlert),
                 _ => homePanel(),
               },
               if (page != 0 && error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13))],
