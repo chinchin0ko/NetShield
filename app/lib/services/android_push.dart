@@ -20,21 +20,22 @@ class AndroidPush {
   Future<bool> start(String token) async {
     if (!Platform.isAndroid) return false;
     try {
-      if (Firebase.apps.isEmpty) await Firebase.initializeApp();
+      if (Firebase.apps.isEmpty) await Firebase.initializeApp().timeout(const Duration(seconds: 15));
       final messaging = FirebaseMessaging.instance;
       final permission = await messaging.requestPermission();
       if (permission.authorizationStatus != AuthorizationStatus.authorized &&
           permission.authorizationStatus != AuthorizationStatus.provisional) { return false; }
       // FCM HTTP v1 currently targets the registration token.
       // ignore: deprecated_member_use
-      final pushToken = await messaging.getToken();
+      final pushToken = await messaging.getToken().timeout(const Duration(seconds: 15));
       if (pushToken == null) return false;
       _deviceId = await vpn.deviceId();
       await api.registerPush(token, _deviceId!, pushToken);
       registered = true;
       // ignore: deprecated_member_use
       _refresh = messaging.onTokenRefresh.listen((value) {
-        _tokenUpdate = api.registerPush(token, _deviceId!, value).catchError((_) {});
+        _tokenUpdate = (_tokenUpdate ?? Future<void>.value())
+            .then((_) => api.registerPush(token, _deviceId!, value)).catchError((_) {});
       });
       _foreground = FirebaseMessaging.onMessage.listen((_) {
         unawaited(const MethodChannel('netshield/android_vpn').invokeMethod<void>('notification').catchError((_) {}));
