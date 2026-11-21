@@ -8,6 +8,7 @@ La API de desarrollo se accede por HTTPS en `https://api.netshield.lat`. Los cli
 
 ```json
 {
+  "sensor_status": "active",
   "monitoring": "experimental",
   "alerts": [{
     "id": 123,
@@ -21,7 +22,7 @@ La API de desarrollo se accede por HTTPS en `https://api.netshield.lat`. Los cli
 }
 ```
 
-`monitoring` es `experimental` si se recibió un heartbeat reciente y `not_active` si no. Por compatibilidad se conserva el valor `experimental`; el cliente puede mostrar «Sensor comunicado recientemente», sin inferir que se detectan todas las amenazas o que no hay pérdida de paquetes. Una lista vacía no indica que no existan amenazas. Una alerta es un indicador y no una confirmación de infección. Suricata asigna severidad 1 como más alta y 3 como más baja en las categorías habituales; la API acepta valores de 1 a 255 y el cliente no debe asumir que solo existirán tres.
+`sensor_status` es `active` si se recibió un heartbeat reciente y `not_active` si no. El cliente puede mostrar «Sensor comunicado recientemente», sin inferir que se detectan todas las amenazas o que no hay pérdida de paquetes. El campo anterior `monitoring` se conserva para los clientes existentes: usa `experimental` para el mismo estado activo y `not_active` cuando no está activo. Una lista vacía no indica que no existan amenazas. Una alerta es un indicador y no una confirmación de infección. Suricata asigna severidad 1 como más alta y 3 como más baja en las categorías habituales; la API acepta valores de 1 a 255 y el cliente no debe asumir que solo existirán tres.
 
 `device_id` identifica el dispositivo de la cuenta, `occurred_at` es el instante del sensor con zona horaria, y `id` es un identificador para revisión. Las marcas `review_status` son `new`, `reviewed` o `false_positive`. Esta última expresa una valoración del usuario, no un resultado automático. `reviewed_at` es nulo cuando el estado es `new`.
 

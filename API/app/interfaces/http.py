@@ -222,7 +222,8 @@ def personal_security_alerts(response: Response, user=Depends(current_identity))
     except (psycopg.Error, RuntimeError):
         raise HTTPException(status_code=503, detail='Alerts unavailable') from None
     response.headers['Cache-Control'] = 'no-store'
-    return {'alerts': alerts, 'monitoring': monitoring}
+    return {'alerts': alerts, 'monitoring': monitoring,
+            'sensor_status': 'active' if monitoring == 'experimental' else 'not_active'}
 
 
 class AlertReview(BaseModel):
