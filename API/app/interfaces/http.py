@@ -305,7 +305,13 @@ def ingest_personal_sensor(batch: PersonalBatch, x_netshield_sensor_key: str = H
             with database() as conn:
                 now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
             for event in events:
-                inserted += int(ingest_current_alert(event, store, PostgresPersonalAlerts(), snapshot, now))
+                alerts = PostgresPersonalAlerts()
+                alert = parse_alert(event)
+                if ingest_current_alert(event, store, alerts, snapshot, now):
+                    inserted += 1
+                    alerts.remove_hold(alert)
+                else:
+                    alerts.hold_if_unattributed(alert)
             with database() as conn:
                 conn.execute('INSERT INTO vpn_sensor_heartbeat (id,last_seen) VALUES (1,clock_timestamp()) '
                              'ON CONFLICT (id) DO UPDATE SET last_seen=EXCLUDED.last_seen')

@@ -29,7 +29,7 @@ def ingest_personal_alert(line, assignments, alerts, *, evidence_trusted):
 
 
 def ingest_current_alert(line, assignments, alerts, snapshot, database_now):
-    """Accept only recent events for a peer that is still uniquely assigned.
+    """Accept delayed events only for a peer that is still uniquely assigned.
 
     The caller holds the same database session lock used by peer mutations.
     Timestamps near assignment changes are intentionally excluded.
@@ -39,7 +39,7 @@ def ingest_current_alert(line, assignments, alerts, snapshot, database_now):
     if alert is None or database_now.tzinfo is None:
         return False
     age = database_now - alert.occurred_at
-    if age < timedelta(seconds=-2) or age > timedelta(seconds=15):
+    if age < timedelta(seconds=-2):
         return False
     try:
         ips = {ip_address(alert.source_ip), ip_address(alert.destination_ip)}

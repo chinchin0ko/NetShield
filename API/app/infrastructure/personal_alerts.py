@@ -39,3 +39,21 @@ class PostgresPersonalAlerts:
                 return True
             return conn.execute('SELECT 1 FROM personal_security_alerts WHERE id = %s AND user_id = %s',
                                 (alert_id, user_id)).fetchone() is not None
+
+
+    def hold_if_unattributed(self, alert):
+        """Retain minimal event data when no safe personal attribution exists."""
+        with database() as conn:
+            row = conn.execute(
+                'INSERT INTO unattributed_sensor_alerts (event_hash, occurred_at, signature, severity, source_ip, destination_ip) '
+                'SELECT %s, %s, %s, %s, %s, %s WHERE NOT EXISTS '
+                '(SELECT 1 FROM personal_security_alerts WHERE event_hash = %s) '
+                'ON CONFLICT (event_hash) DO NOTHING RETURNING event_hash',
+                (alert.event_hash, alert.occurred_at, alert.signature, alert.severity,
+                 alert.source_ip, alert.destination_ip, alert.event_hash),
+            ).fetchone()
+        return row is not None
+
+    def remove_hold(self, alert):
+        with database() as conn:
+            conn.execute('DELETE FROM unattributed_sensor_alerts WHERE event_hash = %s', (alert.event_hash,))

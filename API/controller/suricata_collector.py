@@ -83,9 +83,17 @@ def scan(path, cursor, limit=500, *, include_network_threats=False):
 def save(cursor):
     STATE.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     temp = STATE.with_suffix('.tmp')
-    temp.write_text(json.dumps(cursor))
-    os.chmod(temp, 0o600)
+    with temp.open('w') as output:
+        os.chmod(temp, 0o600)
+        json.dump(cursor, output)
+        output.flush()
+        os.fsync(output.fileno())
     os.replace(temp, STATE)
+    directory_fd = os.open(STATE.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def send(events):

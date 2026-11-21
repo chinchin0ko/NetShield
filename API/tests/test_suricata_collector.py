@@ -66,3 +66,32 @@ def test_vpn_collector_keeps_phishing_and_command_control_alerts(tmp_path):
     assert [item['alert']['signature'] for item in old_feed] == ['ET MALWARE example']
     assert [item['alert']['signature'] for item in vpn_feed] == [
         'ET PHISHING example', 'ET CNC example', 'ET MALWARE example']
+
+
+def test_vpn_pending_log_is_replayed_after_delivery_failure(tmp_path, monkeypatch):
+    import sys
+    from controller import suricata_collector, vpn_sensor_logrotate
+    monkeypatch.setitem(sys.modules, 'suricata_collector', suricata_collector)
+    monkeypatch.setitem(sys.modules, 'vpn_sensor_logrotate', vpn_sensor_logrotate)
+    from controller import vpn_sensor_collector as collector
+    eve = tmp_path / 'eve.json'
+    eve.write_text('')
+    pending = tmp_path / 'eve.pending.00000000000000000001.999999999'
+    pending.write_text(json.dumps(alert()) + '\n')
+    state = tmp_path / 'cursor.json'
+    monkeypatch.setattr(collector, 'EVE', eve)
+    monkeypatch.setattr(collector.common, 'STATE', state)
+    monkeypatch.setattr(collector, 'sensor_pid', lambda: os.getpid())
+    def failure(events):
+        raise OSError('offline')
+    monkeypatch.setattr(collector, 'send', failure)
+    import pytest
+    with pytest.raises(OSError):
+        collector.process_one(None)
+    assert pending.exists() and not state.exists()
+    sent = []
+    monkeypatch.setattr(collector, 'send', lambda events: sent.extend(events))
+    cursor, had_events = collector.process_one(None)
+    assert had_events and len(sent) == 1
+    assert json.loads(state.read_text()) == cursor
+    assert not pending.exists()
