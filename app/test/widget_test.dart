@@ -79,7 +79,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final api = FakeApi();
+    final api = FakeApi()..showAlert = true;
     await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api), notifier: FakeNotifier()));
     expect(tester.takeException(), isNull, reason: 'login layout');
     await tester.enterText(find.byType(TextField).at(0), 'demo');
@@ -92,6 +92,17 @@ void main() {
     await tester.tap(find.text('Ajustes'));
     await tester.pumpAndSettle();
     expect(find.text('Configuración'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Consumo'));
+    await tester.pumpAndSettle();
+    expect(find.text('Consumo por día'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Alertas'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('ET MALWARE indicador detectado'));
+    await tester.tap(find.text('ET MALWARE indicador detectado'));
+    await tester.pumpAndSettle();
+    expect(find.text('Detalles de la detección'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   testWidgets('Settings controls the lock and usage displays actual counters', (tester) async {
@@ -132,6 +143,11 @@ void main() {
     expect(find.textContaining('Sensor no disponible'), findsOneWidget);
     expect(find.text('Generar alerta de prueba'), findsNothing);
     expect(find.text('ET MALWARE indicador detectado'), findsOneWidget);
+    await tester.ensureVisible(find.text('ET MALWARE indicador detectado'));
+    await tester.tap(find.text('ET MALWARE indicador detectado'));
+    await tester.pumpAndSettle();
+    expect(find.text('Detalles de la detección'), findsOneWidget);
+    expect(find.text('Severidad del sensor'), findsOneWidget);
     await tester.ensureVisible(find.text('Posible falso positivo'));
     await tester.tap(find.text('Posible falso positivo'));
     await tester.pumpAndSettle();

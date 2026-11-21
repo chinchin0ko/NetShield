@@ -1,6 +1,9 @@
 import 'package:material_ui/material_ui.dart';
 import '../services/linux_vpn.dart';
 import '../services/api_client.dart';
+import 'usage_chart.dart';
+import 'format_bytes.dart';
+import 'alert_cards.dart';
 
 const _ink = Color(0xff344e41);
 const _green = Color(0xff3a5a40);
@@ -48,13 +51,6 @@ class SettingsPanel extends StatelessWidget {
   ]);
 }
 
-String formatBytes(int value) {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  double amount = value.toDouble(); var index = 0;
-  while (amount >= 1024 && index < units.length - 1) { amount /= 1024; index++; }
-  return '${amount.toStringAsFixed(index == 0 ? 0 : 1)} ${units[index]}';
-}
-
 class UsagePanel extends StatelessWidget {
   const UsagePanel({super.key, required this.connected, required this.usage, required this.loading, required this.serverUsage, required this.serverUnavailable, required this.history, required this.historyUnavailable});
   final bool connected, loading;
@@ -73,6 +69,9 @@ class UsagePanel extends StatelessWidget {
     ])) else ...[
       Row(children: [Expanded(child: _UsageCard(icon: Icons.south_west_rounded, label: 'RECIBIDO', value: formatBytes(usage!.receivedBytes))), const SizedBox(width: 12), Expanded(child: _UsageCard(icon: Icons.north_east_rounded, label: 'ENVIADO', value: formatBytes(usage!.sentBytes)))]),
       const SizedBox(height: 16), const Text('Los contadores se reinician cuando se vuelve a crear el túnel. No incluyen un historial.', style: TextStyle(color: _muted, fontSize: 12, height: 1.45)),
+    ],
+    if (history != null && history!.isNotEmpty) ...[
+      const SizedBox(height: 24), SoftCard(child: UsageChart(history: history!)),
     ],
     const SizedBox(height: 24),
     const Text('Tus dispositivos', style: TextStyle(color: _ink, fontSize: 16, fontWeight: FontWeight.w800)),
@@ -108,7 +107,7 @@ class _UsageCard extends StatelessWidget {
   Widget build(BuildContext context) => SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(icon, color: const Color(0xff588157), size: 20), const SizedBox(height: 15), Text(value, style: const TextStyle(color: _ink, fontSize: 21, fontWeight: FontWeight.w800)), const SizedBox(height: 4), Text(label, style: const TextStyle(color: _muted, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1))]));
 }
 
-class AlertsPanel extends StatelessWidget {
+class AlertsPanel extends StatefulWidget {
   const AlertsPanel({super.key, required this.alerts, required this.monitoring, required this.loading, required this.busy, required this.error, required this.onRefresh, required this.onReview, required this.newAlerts, required this.onAcknowledge});
   final List<Map<String, dynamic>>? alerts;
   final bool loading, busy;
@@ -118,31 +117,46 @@ class AlertsPanel extends StatelessWidget {
   final int newAlerts;
   final void Function(int, String) onReview;
   @override
-  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    const PanelHeading('CENTRO DE SEGURIDAD', 'Alertas y amenazas', 'Consulta las alertas asociadas a tu cuenta.'),
-    const SizedBox(height: 20),
-    SoftCard(child: Text(monitoring == 'experimental' ? 'Sensor comunicado recientemente. Las alertas son indicios y requieren revisión.' : 'Sensor no disponible. Las alertas guardadas siguen visibles.', style: const TextStyle(color: _muted, fontSize: 12, height: 1.4))),
-    const SizedBox(height: 12),
-    if (newAlerts > 0) ...[
-      SoftCard(child: Row(children: [const Icon(Icons.notifications_active_outlined, color: _green), const SizedBox(width: 10), Expanded(child: Text(newAlerts == 1 ? 'Tienes una alerta nueva.' : 'Tienes $newAlerts alertas nuevas.', style: const TextStyle(color: _ink, fontWeight: FontWeight.w700))), TextButton(onPressed: onAcknowledge, child: const Text('Entendido'))])),
-      const SizedBox(height: 8),
-    ],
-    TextButton.icon(onPressed: busy ? null : onRefresh, icon: const Icon(Icons.refresh_rounded, size: 18), label: const Text('Actualizar')),
-    const Text('Actualización automática cada 15 segundos.', style: TextStyle(color: _muted, fontSize: 12)),
-    if (loading) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
-    if (error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text(error!, style: const TextStyle(color: _muted, fontSize: 12))),
-    if (!loading && alerts != null && alerts!.isEmpty) const SoftCard(child: Text('Aún no hay alertas guardadas.', style: TextStyle(color: _muted))),
-    if (alerts != null) ...alerts!.map((item) => Padding(padding: const EdgeInsets.only(top: 8), child: SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(item['signature'] as String, style: const TextStyle(color: _ink, fontWeight: FontWeight.w800)),
-      const SizedBox(height: 6), Text('Dispositivo ${(item['device_id'] as String).substring(0, 8)} · ${item['occurred_at']}', style: const TextStyle(color: _muted, fontSize: 12)),
-      const SizedBox(height: 8),
-      Text(switch (item['review_status']) { 'reviewed' => 'Marcada como revisada', 'false_positive' => 'Marcada como posible falso positivo', _ => 'Pendiente de revisar' }, style: const TextStyle(color: _green, fontSize: 12)),
-      const SizedBox(height: 4),
-      Wrap(spacing: 8, children: [
-        TextButton(onPressed: busy ? null : () => onReview(item['id'] as int, 'reviewed'), child: const Text('Revisada')),
-        TextButton(onPressed: busy ? null : () => onReview(item['id'] as int, 'false_positive'), child: const Text('Posible falso positivo')),
-        if (item['review_status'] != 'new') TextButton(onPressed: busy ? null : () => onReview(item['id'] as int, 'new'), child: const Text('Pendiente')),
+  State<AlertsPanel> createState() => _AlertsPanelState();
+}
+
+class _AlertsPanelState extends State<AlertsPanel> {
+  String filter = 'all';
+  @override
+  Widget build(BuildContext context) {
+    final alerts = widget.alerts;
+    final visible = alerts?.where((item) => filter == 'all' || item['review_status'] == filter).toList();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const PanelHeading('CENTRO DE SEGURIDAD', 'Alertas y amenazas', 'Consulta las alertas asociadas a tu cuenta.'),
+      const SizedBox(height: 20),
+      SoftCard(child: Text(widget.monitoring == 'experimental' ? 'Sensor comunicado recientemente. Las alertas son indicios y requieren revisión.' : 'Sensor no disponible. Las alertas guardadas siguen visibles.', style: const TextStyle(color: _muted, fontSize: 12, height: 1.4))),
+      const SizedBox(height: 12),
+      if (widget.newAlerts > 0) ...[
+        SoftCard(child: Row(children: [const Icon(Icons.notifications_active_outlined, color: _green), const SizedBox(width: 10), Expanded(child: Text(widget.newAlerts == 1 ? 'Tienes una alerta nueva.' : 'Tienes ${widget.newAlerts} alertas nuevas.', style: const TextStyle(color: _ink, fontWeight: FontWeight.w700))), TextButton(onPressed: widget.onAcknowledge, child: const Text('Entendido'))])),
+        const SizedBox(height: 8),
+      ],
+      TextButton.icon(onPressed: widget.busy ? null : widget.onRefresh, icon: const Icon(Icons.refresh_rounded, size: 18), label: const Text('Actualizar')),
+      const Text('Actualización automática cada 15 segundos.', style: TextStyle(color: _muted, fontSize: 12)),
+      const SizedBox(height: 12),
+      Wrap(spacing: 6, runSpacing: 4, children: [
+        _filter('all', 'Todas'), _filter('new', 'Pendientes'), _filter('reviewed', 'Revisadas'), _filter('false_positive', 'Posibles falsos positivos'),
       ]),
-    ])))),
-  ]);
+      const SizedBox(height: 8),
+      if (widget.loading) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
+      if (widget.error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text(widget.error!, style: const TextStyle(color: _muted, fontSize: 12))),
+      if (!widget.loading && alerts != null && alerts.isEmpty) const SoftCard(child: Text('Aún no hay alertas guardadas.', style: TextStyle(color: _muted)))
+      else if (!widget.loading && visible != null && visible.isEmpty) const SoftCard(child: Text('No hay alertas con este filtro.', style: TextStyle(color: _muted))),
+      if (visible != null) ...visible.map((item) => Padding(padding: const EdgeInsets.only(top: 8), child: AlertCard(key: ValueKey(item['id']), item: item, busy: widget.busy, onReview: widget.onReview))),
+    ]);
+  }
+
+  Widget _filter(String value, String label) => ChoiceChip(
+    label: Text(label), selected: filter == value,
+    onSelected: (_) => setState(() => filter = value),
+    labelStyle: const TextStyle(fontSize: 11, color: _ink),
+    selectedColor: const Color(0xffdce8d5),
+    backgroundColor: Colors.white.withValues(alpha: .45),
+    side: const BorderSide(color: Color(0xffdce5d5)),
+    showCheckmark: false,
+  );
 }
