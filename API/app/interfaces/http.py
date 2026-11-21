@@ -283,7 +283,7 @@ class PersonalBatch(BaseModel):
 def ingest_personal_sensor(batch: PersonalBatch, x_netshield_sensor_key: str = Header(default='')):
     import hmac
     from app.application.assignment_lifecycle import SnapshotPeer, validate_snapshot
-    from app.application.personal_alerts import ingest_current_alert
+    from app.application.personal_alerts import ingest_current_alert, ingest_known_alert
     from app.infrastructure.assignments import PostgresAssignments
     from app.infrastructure.personal_alerts import PostgresPersonalAlerts
     from app.infrastructure.postgres import database
@@ -312,6 +312,13 @@ def ingest_personal_sensor(batch: PersonalBatch, x_netshield_sensor_key: str = H
                     alerts.remove_hold(alert)
                 else:
                     alerts.hold_if_unattributed(alert)
+            # Retry a bounded, fair batch on every heartbeat. Ambiguous events
+            # stay private until the same ownership checks become conclusive.
+            alerts = PostgresPersonalAlerts()
+            for held in alerts.pending_for_retry():
+                if ingest_known_alert(held, store, alerts, snapshot, now):
+                    inserted += 1
+                alerts.note_checked_or_remove_delivered(held)
             with database() as conn:
                 conn.execute('INSERT INTO vpn_sensor_heartbeat (id,last_seen) VALUES (1,clock_timestamp()) '
                              'ON CONFLICT (id) DO UPDATE SET last_seen=EXCLUDED.last_seen')

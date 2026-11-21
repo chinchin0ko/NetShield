@@ -52,8 +52,8 @@ def build(source_config, source_rules, output_dir, rule_limit=3000):
     output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     (output_dir / 'rules.rules').write_text('\n'.join(chosen + [TEST_RULE]) + '\n')
     config['outputs'] = [{'eve-log': {'enabled': True, 'filetype': 'regular',
-                                      'filename': 'eve.json', 'types': [{'alert': {'payload': False, 'packet': False}}]}}]
-    config['stats'] = {'enabled': False}
+                                      'filename': 'eve.json', 'types': [{'alert': {'payload': False, 'packet': False}}, {'stats': {'totals': True, 'threads': False, 'deltas': False}}]}}]
+    config['stats'] = {'enabled': True, 'interval': 30}
     config['threading'] = {'set-cpu-affinity': False}
     (output_dir / 'suricata.yaml').write_text('%YAML 1.1\n---\n' + yaml.safe_dump(config, sort_keys=False))
     return len(chosen)

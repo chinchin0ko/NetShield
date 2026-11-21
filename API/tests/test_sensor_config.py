@@ -20,7 +20,8 @@ def test_build_limits_rules_and_disables_other_logs(tmp_path):
     assert sensor.build(config, rules, output, rule_limit=1) == 1
     settings = yaml.safe_load((output / 'suricata.yaml').read_text())
     assert len(settings['outputs']) == 1
-    assert settings['outputs'][0]['eve-log']['types'] == [{'alert': {'payload': False, 'packet': False}}]
+    assert settings['outputs'][0]['eve-log']['types'] == [{'alert': {'payload': False, 'packet': False}}, {'stats': {'totals': True, 'threads': False, 'deltas': False}}]
+    assert settings['stats'] == {'enabled': True, 'interval': 30}
     assert 'sid:1' in (output / 'rules.rules').read_text()
     assert 'sid:2' not in (output / 'rules.rules').read_text()
 

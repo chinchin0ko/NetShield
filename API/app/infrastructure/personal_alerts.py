@@ -57,3 +57,29 @@ class PostgresPersonalAlerts:
     def remove_hold(self, alert):
         with database() as conn:
             conn.execute('DELETE FROM unattributed_sensor_alerts WHERE event_hash = %s', (alert.event_hash,))
+
+
+    def pending_for_retry(self, limit=25):
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError('invalid limit')
+        from app.domain.alerts import SecurityAlert
+        with database() as conn:
+            rows = conn.execute(
+                'SELECT event_hash, occurred_at, signature, severity, source_ip, destination_ip '
+                'FROM unattributed_sensor_alerts ORDER BY last_checked_at ASC NULLS FIRST, first_received_at, event_hash LIMIT %s',
+                (limit,),
+            ).fetchall()
+        return [SecurityAlert(row[0], row[1], row[2], row[3],
+                              str(row[4]) if row[4] is not None else None,
+                              str(row[5]) if row[5] is not None else None) for row in rows]
+
+    def note_checked_or_remove_delivered(self, alert):
+        with database() as conn:
+            deleted = conn.execute(
+                'DELETE FROM unattributed_sensor_alerts WHERE event_hash = %s '
+                'AND EXISTS (SELECT 1 FROM personal_security_alerts WHERE event_hash = %s) RETURNING event_hash',
+                (alert.event_hash, alert.event_hash),
+            ).fetchone()
+            if deleted is None:
+                conn.execute('UPDATE unattributed_sensor_alerts SET last_checked_at = clock_timestamp() WHERE event_hash = %s',
+                             (alert.event_hash,))

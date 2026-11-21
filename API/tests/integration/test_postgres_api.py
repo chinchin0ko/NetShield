@@ -234,7 +234,8 @@ def test_sensor_ingestion_authenticates_and_checks_current_owner(lab_database, m
         assert conn.execute('SELECT count(*) FROM unattributed_sensor_alerts').fetchone()[0] == 1
     monkeypatch.setattr('app.infrastructure.wg_easy_bridge._request',
                         lambda *args, **kwargs: {'ownership_snapshot': [{'user_id': 1, 'device_id': 'a'*32, 'address': '10.8.0.2'}]})
-    assert client.post('/internal/suricata/personal', headers=headers, json={'events': [event]}).json()['inserted'] == 1
+    # An empty heartbeat retries the retained event without requiring a replay.
+    assert client.post('/internal/suricata/personal', headers=headers, json={'events': []}).json()['inserted'] == 1
     with database() as conn:
         assert conn.execute('SELECT count(*) FROM unattributed_sensor_alerts').fetchone()[0] == 0
         assert conn.execute('SELECT count(*) FROM personal_security_alerts WHERE user_id=1').fetchone()[0] == 2

@@ -34,8 +34,12 @@ def ingest_current_alert(line, assignments, alerts, snapshot, database_now):
     The caller holds the same database session lock used by peer mutations.
     Timestamps near assignment changes are intentionally excluded.
     """
+    return ingest_known_alert(parse_alert(line), assignments, alerts, snapshot, database_now)
+
+
+def ingest_known_alert(alert, assignments, alerts, snapshot, database_now):
+    """Apply the same ownership checks to both live and held events."""
     from datetime import timedelta
-    alert = parse_alert(line)
     if alert is None or database_now.tzinfo is None:
         return False
     age = database_now - alert.occurred_at
