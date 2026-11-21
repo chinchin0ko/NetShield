@@ -298,3 +298,39 @@ def test_alert_review_requires_owner_and_preserves_classification(lab_database):
     with database() as conn:
         reviews = conn.execute('SELECT status FROM personal_alert_reviews WHERE alert_id = %s ORDER BY id', (alert_id,)).fetchall()
     assert reviews == [('false_positive',), ('new',)]
+
+
+def test_push_outbox_is_account_scoped_and_retries(lab_database):
+    from app.infrastructure.postgres import database
+    from app.infrastructure.push_worker import deliver_one
+
+    client = TestClient(app)
+    def headers(username, password):
+        response = client.post('/auth/token', json={'username': username, 'password': password})
+        return {'Authorization': 'Bearer ' + response.json()['access_token']}
+    first = headers('integration-user', 'test passphrase 1234')
+    second = headers('second-user', 'second passphrase 1234')
+    one, two = 'a' * 32, 'b' * 32
+    assert client.put('/push/subscription', headers=first, json={'device_id': one, 'token': 'token-one'}).status_code == 204
+    assert client.put('/push/subscription', headers=second, json={'device_id': two, 'token': 'token-two'}).status_code == 204
+    assert client.delete('/push/subscription/' + one, headers=second).status_code == 204
+    with database() as conn:
+        assert conn.execute('SELECT count(*) FROM push_subscriptions').fetchone()[0] == 2
+        conn.execute("INSERT INTO personal_security_alerts (event_hash,user_id,device_id,occurred_at,signature,severity) VALUES (%s,1,%s,now(),'test',2)", ('e' * 64, one))
+        assert conn.execute('SELECT count(*) FROM push_outbox').fetchone()[0] == 1
+    class Sender:
+        tokens = []
+        result = 'retry'
+        def send(self, token):
+            self.tokens.append(token)
+            return self.result
+    sender = Sender()
+    assert deliver_one(sender)
+    assert sender.tokens == ['token-one']
+    with database() as conn:
+        assert conn.execute('SELECT attempts FROM push_outbox').fetchone()[0] == 1
+        conn.execute('UPDATE push_outbox SET next_attempt_at=clock_timestamp()')
+    sender.result = 'sent'
+    assert deliver_one(sender)
+    with database() as conn:
+        assert conn.execute('SELECT count(*) FROM push_outbox').fetchone()[0] == 0

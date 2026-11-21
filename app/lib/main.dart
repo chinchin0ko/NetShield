@@ -1,8 +1,11 @@
 import 'dart:ui';
 import 'dart:async';
+import 'dart:io';
 import 'package:material_ui/material_ui.dart';
 import 'services/api_client.dart';
 import 'services/linux_vpn.dart';
+import 'services/android_vpn.dart';
+import 'services/android_push.dart';
 import 'services/desktop_notifications.dart';
 import 'screens/dashboard_panels.dart';
 
@@ -68,8 +71,11 @@ class _ShieldHomeState extends State<ShieldHome> {
   List<Map<String, dynamic>>? alerts;
   String? alertsError;
   String alertMonitoring = 'not_active';
-  late final LinuxVpn vpn = widget.vpn ?? LinuxVpn(widget.api);
+  late final LinuxVpn vpn = widget.vpn ?? (Platform.isAndroid ? AndroidVpn(widget.api) : LinuxVpn(widget.api));
   late final AlertNotifier notifier = widget.notifier ?? LinuxAlertNotifier();
+  late final AndroidPush push = AndroidPush(widget.api, vpn);
+  Future<void>? pushStarting;
+  bool pushActive = false;
   Timer? monitor;
   String? error, notice, token, signedInAs;
 
@@ -94,7 +100,7 @@ class _ShieldHomeState extends State<ShieldHome> {
   }
 
   @override
-  void dispose() { monitor?.cancel(); alertsTimer?.cancel(); gatewayCooldown?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
+  void dispose() { push.dispose(); monitor?.cancel(); alertsTimer?.cancel(); gatewayCooldown?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
 
   Future<void> signIn() async {
     if (loading) return;
@@ -109,6 +115,11 @@ class _ShieldHomeState extends State<ShieldHome> {
       final blocked = await vpn.isKillSwitchEnabled();
       if (!mounted) return;
       setState(() { token = result; signedInAs = username.text.trim(); vpnConnected = active; trafficBlocked = blocked; password.clear(); });
+      if (Platform.isAndroid) {
+        pushStarting = push.start(result).then((active) {
+          if (mounted && token == result) setState(() => pushActive = active);
+        });
+      }
       alertSession++;
       unawaited(refreshAlerts(background: true));
       alertsTimer?.cancel();
@@ -343,6 +354,8 @@ class _ShieldHomeState extends State<ShieldHome> {
     setState(() { vpnLoading = true; error = null; });
     try {
       if (vpnConnected || trafficBlocked) await vpn.disconnect();
+      await pushStarting;
+      if (token != null) await push.stop(token!);
       monitor?.cancel();
       alertsTimer?.cancel();
       alertSession++;
@@ -473,7 +486,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     if (error != null) ...[const SizedBox(height: 14), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13, height: 1.3))],
     if (notice != null) ...[const SizedBox(height: 14), Text(notice!, style: const TextStyle(color: forest, fontSize: 13))],
     const SizedBox(height: 24),
-    SizedBox(width: double.infinity, height: 54, child: FilledButton(onPressed: loading ? null : (register ? signUp : signIn), style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Row(mainAxisAlignment: MainAxisAlignment.center, children: [Text(register ? 'Crear cuenta' : 'Entrar a NetShield', style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(width: 9), const Icon(Icons.arrow_forward_rounded, size: 18)]))),
+    SizedBox(width: double.infinity, height: 54, child: FilledButton(onPressed: loading ? null : (register ? signUp : signIn), style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: loading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : FittedBox(fit: BoxFit.scaleDown, child: Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [Text(register ? 'Crear cuenta' : 'Entrar a NetShield', style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(width: 9), const Icon(Icons.arrow_forward_rounded, size: 18)])))),
     const SizedBox(height: 20),
     const Center(child: Text('DISEÑADO PARA TU TRANQUILIDAD', style: TextStyle(color: Color(0xFF9aa896), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1.3))),
   ]);
@@ -495,7 +508,7 @@ class _ShieldHomeState extends State<ShieldHome> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               switch (page) {
-                1 => SettingsPanel(connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
+                1 => SettingsPanel(android: Platform.isAndroid, pushActive: pushActive, connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
                 2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable, history: usageHistory, historyUnavailable: historyUnavailable),
                 3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, busy: alertsLoading || alertsChecking, error: alertsError, onRefresh: () => refreshAlerts(), onReview: reviewAlert, newAlerts: unseenAlertIds.length, onAcknowledge: () => setState(() => unseenAlertIds.clear())),
                 _ => homePanel(),
@@ -519,9 +532,9 @@ class _ShieldHomeState extends State<ShieldHome> {
     const SizedBox(height: 36),
     Center(child: PowerOrb(connected: vpnConnected, loading: connectionTransition)),
     const SizedBox(height: 25),
-    Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : (dnsHealthy == false ? 'DNS sin respuesta' : (internetHealthy == false ? 'Prueba de Internet sin respuesta' : 'Conectado'))) : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
+    Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : (dnsHealthy == false ? 'DNS sin respuesta' : (internetHealthy == false ? 'Prueba de Internet sin respuesta' : (Platform.isAndroid ? 'Túnel activo' : 'Conectado')))) : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
     const SizedBox(height: 8),
-    Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null ? 'Comprobando la conexión con el servidor VPN.' : (dnsHealthy == false ? 'El DNS de la VPN no respondió a la prueba.' : (internetHealthy == false ? 'La prueba de Internet no respondió; algunas redes bloquean este tipo de comprobación.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar tu VPN.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
+    Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null && !Platform.isAndroid ? 'Comprobando la conexión con el servidor VPN.' : (dnsHealthy == false ? 'El DNS de la VPN no respondió a la prueba.' : (internetHealthy == false ? 'La prueba de Internet no respondió; algunas redes bloquean este tipo de comprobación.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar tu VPN.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
     const SizedBox(height: 30),
     SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: vpnConnected ? const Color(0xffa6433a) : forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
     const SizedBox(height: 12), Center(child: TextButton.icon(onPressed: vpnLoading ? null : manageDevices, icon: const Icon(Icons.devices_rounded, size: 17), label: const Text('Administrar dispositivos'), style: TextButton.styleFrom(foregroundColor: forest))),

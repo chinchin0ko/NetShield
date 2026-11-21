@@ -210,6 +210,35 @@ def delete_device(device_id: int, user=Depends(current_identity), service: Devic
         raise HTTPException(status_code=404, detail='Device not found')
 
 
+class PushSubscription(BaseModel):
+    device_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+    token: str = Field(min_length=1, max_length=4096, pattern=r'^[A-Za-z0-9_:.\-]+$')
+
+
+@router.put('/push/subscription', status_code=204)
+def register_push(data: PushSubscription, response: Response, user=Depends(current_identity)):
+    from app.infrastructure.push import register
+    try:
+        register(user.id, data.device_id, data.token)
+    except ValueError:
+        raise HTTPException(status_code=429, detail='Push device limit reached') from None
+    except (psycopg.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='Push service unavailable') from None
+    response.headers['Cache-Control'] = 'no-store'
+
+
+@router.delete('/push/subscription/{device_id}', status_code=204)
+def unregister_push(device_id: str, response: Response, user=Depends(current_identity)):
+    from app.infrastructure.push import unregister
+    if not re.fullmatch(r'[0-9a-f]{32}', device_id):
+        raise HTTPException(status_code=422, detail='Invalid device')
+    try:
+        unregister(user.id, device_id)
+    except (psycopg.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='Push service unavailable') from None
+    response.headers['Cache-Control'] = 'no-store'
+
+
 @router.get('/security/alerts')
 def personal_security_alerts(response: Response, user=Depends(current_identity)):
     from app.infrastructure.personal_alerts import PostgresPersonalAlerts

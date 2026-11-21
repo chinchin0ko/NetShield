@@ -74,6 +74,26 @@ class FakeApi extends ApiClient {
 }
 
 void main() {
+  testWidgets('Dashboard fits a phone-sized screen', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api), notifier: FakeNotifier()));
+    expect(tester.takeException(), isNull, reason: 'login layout');
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.ensureVisible(find.text('Entrar a NetShield'));
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    expect(find.text('Conectar'), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: 'home layout');
+    await tester.tap(find.text('Ajustes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Configuración'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('Settings controls the lock and usage displays actual counters', (tester) async {
     tester.view.physicalSize = const Size(1200, 1100);
     tester.view.devicePixelRatio = 1;

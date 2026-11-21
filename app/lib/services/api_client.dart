@@ -79,6 +79,14 @@ class ApiClient {
     }
   }
 
+  Future<void> registerPush(String token, String deviceId, String pushToken) async {
+    await _authorized(token, 'PUT', '/push/subscription', payload: {'device_id': deviceId, 'token': pushToken});
+  }
+
+  Future<void> unregisterPush(String token, String deviceId) async {
+    await _authorized(token, 'DELETE', '/push/subscription/$deviceId');
+  }
+
   Future<List<Map<String, dynamic>>> vpnDevices(String token) async {
     final result = await _authorized(token, 'GET', '/vpn/devices');
     if (result is! Map || result['devices'] is! List) throw const ApiException('La lista de dispositivos es inválida.');

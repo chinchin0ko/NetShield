@@ -29,8 +29,8 @@ class SoftCard extends StatelessWidget {
 }
 
 class SettingsPanel extends StatelessWidget {
-  const SettingsPanel({super.key, required this.connected, required this.blocked, required this.busy, required this.onSwitch, required this.onDevices});
-  final bool connected, blocked, busy;
+  const SettingsPanel({super.key, this.android = false, this.pushActive = false, required this.connected, required this.blocked, required this.busy, required this.onSwitch, required this.onDevices});
+  final bool android, pushActive, connected, blocked, busy;
   final ValueChanged<bool> onSwitch;
   final VoidCallback onDevices;
   @override
@@ -39,10 +39,11 @@ class SettingsPanel extends StatelessWidget {
     const SizedBox(height: 25), SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: const Color(0xffe1ead9), borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.shield_outlined, color: _green, size: 22)),
         const SizedBox(width: 12), const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Kill Switch', style: TextStyle(color: _ink, fontSize: 16, fontWeight: FontWeight.w800)), SizedBox(height: 3), Text('Bloqueo de tráfico', style: TextStyle(color: _muted, fontSize: 12))])),
-        Switch(value: blocked, activeThumbColor: _green, onChanged: busy || (!connected && !blocked) ? null : onSwitch)]),
-      const SizedBox(height: 13), Text(blocked ? 'Activo: bloquea el tráfico fuera de la VPN, incluso si el túnel cae.' : (connected ? 'Desactivado: tu tráfico podría salir fuera del túnel si la VPN falla.' : 'Conecta la VPN para activar el bloqueo.'), style: const TextStyle(color: _muted, fontSize: 12, height: 1.45)),
-      const SizedBox(height: 8), const Text('Al volver a conectar, el bloqueo se activa automáticamente.', style: TextStyle(color: _muted, fontSize: 11, height: 1.4)),
+        Switch(value: blocked, activeThumbColor: _green, onChanged: android || busy || (!connected && !blocked) ? null : onSwitch)]),
+      const SizedBox(height: 13), Text(android ? 'El bloqueo permanente aún no está disponible en Android.' : blocked ? 'Activo: bloquea el tráfico fuera de la VPN, incluso si el túnel cae.' : (connected ? 'Desactivado: tu tráfico podría salir fuera del túnel si la VPN falla.' : 'Conecta la VPN para activar el bloqueo.'), style: const TextStyle(color: _muted, fontSize: 12, height: 1.45)),
+      if (!android) ...[const SizedBox(height: 8), const Text('Al volver a conectar, el bloqueo se activa automáticamente.', style: TextStyle(color: _muted, fontSize: 11, height: 1.4))],
     ])),
+    if (android) ...[const SizedBox(height: 14), SoftCard(child: Text(pushActive ? 'Dispositivo registrado para notificaciones push.' : 'Notificaciones push no disponibles; revisa los permisos y la configuración del servicio.', style: const TextStyle(color: _muted, fontSize: 12)))],
     const SizedBox(height: 14), SoftCard(child: InkWell(onTap: busy ? null : onDevices, borderRadius: BorderRadius.circular(12), child: const Row(children: [Icon(Icons.devices_rounded, color: _green), SizedBox(width: 13), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Dispositivos', style: TextStyle(color: _ink, fontWeight: FontWeight.w800, fontSize: 14)), SizedBox(height: 3), Text('Consulta y revoca accesos', style: TextStyle(color: _muted, fontSize: 12))])), Icon(Icons.chevron_right_rounded, color: _green)]))),
   ]);
 }
