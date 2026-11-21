@@ -39,8 +39,14 @@ class FakeApi extends ApiClient {
   bool showAlert = false;
   String reviewStatus = 'new';
   bool manyAlerts = false;
+  bool alertsFail = false;
+  int alertRequests = 0;
   @override
-  Future<SecurityAlertFeed> securityAlerts(String token) async => SecurityAlertFeed(manyAlerts ? List.generate(20, (i) => {"id": i + 1, "review_status": "new", "device_id": "a" * 32, "signature": "Alerta $i", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}) : showAlert ? [{"id": 1, "review_status": reviewStatus, "device_id": "a" * 32, "signature": "ET MALWARE indicador detectado", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}] : [], "not_active");
+  Future<SecurityAlertFeed> securityAlerts(String token) async {
+    alertRequests++;
+    if (alertsFail) throw const ApiException('offline');
+    return SecurityAlertFeed(manyAlerts ? List.generate(20, (i) => {"id": i + 1, "review_status": "new", "device_id": "a" * 32, "signature": "Alerta $i", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}) : showAlert ? [{"id": 1, "review_status": reviewStatus, "device_id": "a" * 32, "signature": "ET MALWARE indicador detectado", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}] : [], "not_active");
+  }
   @override
   Future<void> reviewAlert(String token, int id, String status) async { reviewStatus = status; }
   @override
@@ -196,6 +202,62 @@ void main() {
     await tester.pump();
     expect(find.text('Conectado'), findsOneWidget);
     expect(vpn.connected, isTrue);
+  });
+
+  testWidgets('Alerts refresh in place, notify once, and preserve data on failure', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api)));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alertas'));
+    await tester.pumpAndSettle();
+    expect(find.text('Aún no hay alertas guardadas.'), findsOneWidget);
+    api.showAlert = true;
+    await tester.pump(const Duration(seconds: 15));
+    await tester.pump();
+    expect(find.text('ET MALWARE indicador detectado'), findsOneWidget);
+    expect(find.text('Tienes una alerta nueva.'), findsOneWidget);
+    expect(find.text('Alertas · 1'), findsOneWidget);
+    await tester.tap(find.text('Entendido'));
+    await tester.pump();
+    expect(find.text('Tienes una alerta nueva.'), findsNothing);
+    final before = api.alertRequests;
+    await tester.tap(find.text('Actualizar'));
+    await tester.pump();
+    expect(api.alertRequests, greaterThan(before));
+    expect(find.text('Tienes una alerta nueva.'), findsNothing);
+    api.alertsFail = true;
+    await tester.tap(find.text('Actualizar'));
+    await tester.pump();
+    expect(find.text('ET MALWARE indicador detectado'), findsOneWidget);
+    expect(find.textContaining('No se pudieron actualizar las alertas'), findsOneWidget);
+  });
+
+  testWidgets('Connected orb pulses and the disconnect action is red', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api)));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Conectar'));
+    await tester.pumpAndSettle();
+    final button = tester.widget<FilledButton>(find.ancestor(of: find.text('Desconectar'), matching: find.byType(FilledButton)));
+    expect(button.style!.backgroundColor!.resolve({}), const Color(0xffa6433a));
+    await tester.pump(const Duration(milliseconds: 1900));
+    await tester.pump();
+    final orbScale = tester.widget<AnimatedScale>(find.ancestor(of: find.byKey(const ValueKey('connection-orb')), matching: find.byType(AnimatedScale)));
+    expect(orbScale.scale, 1.045);
   });
 
   testWidgets('Restored traffic lock can be disabled before login', (tester) async {

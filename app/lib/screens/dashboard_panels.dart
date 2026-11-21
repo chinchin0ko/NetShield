@@ -108,12 +108,13 @@ class _UsageCard extends StatelessWidget {
 }
 
 class AlertsPanel extends StatelessWidget {
-  const AlertsPanel({super.key, required this.alerts, required this.monitoring, required this.loading, required this.error, required this.onRefresh, required this.onReview});
+  const AlertsPanel({super.key, required this.alerts, required this.monitoring, required this.loading, required this.busy, required this.error, required this.onRefresh, required this.onReview, required this.newAlerts, required this.onAcknowledge});
   final List<Map<String, dynamic>>? alerts;
-  final bool loading;
+  final bool loading, busy;
   final String monitoring;
   final String? error;
-  final VoidCallback onRefresh;
+  final VoidCallback onRefresh, onAcknowledge;
+  final int newAlerts;
   final void Function(int, String) onReview;
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -121,7 +122,12 @@ class AlertsPanel extends StatelessWidget {
     const SizedBox(height: 20),
     SoftCard(child: Text(monitoring == 'experimental' ? 'Sensor comunicado recientemente. Las alertas son indicios y requieren revisión.' : 'Sensor no disponible. Las alertas guardadas siguen visibles.', style: const TextStyle(color: _muted, fontSize: 12, height: 1.4))),
     const SizedBox(height: 12),
-    TextButton(onPressed: loading ? null : onRefresh, child: const Text('Actualizar')),
+    if (newAlerts > 0) ...[
+      SoftCard(child: Row(children: [const Icon(Icons.notifications_active_outlined, color: _green), const SizedBox(width: 10), Expanded(child: Text(newAlerts == 1 ? 'Tienes una alerta nueva.' : 'Tienes $newAlerts alertas nuevas.', style: const TextStyle(color: _ink, fontWeight: FontWeight.w700))), TextButton(onPressed: onAcknowledge, child: const Text('Entendido'))])),
+      const SizedBox(height: 8),
+    ],
+    TextButton.icon(onPressed: busy ? null : onRefresh, icon: const Icon(Icons.refresh_rounded, size: 18), label: const Text('Actualizar')),
+    const Text('Actualización automática cada 15 segundos.', style: TextStyle(color: _muted, fontSize: 12)),
     if (loading) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
     if (error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text(error!, style: const TextStyle(color: _muted, fontSize: 12))),
     if (!loading && alerts != null && alerts!.isEmpty) const SoftCard(child: Text('Aún no hay alertas guardadas.', style: TextStyle(color: _muted))),
@@ -132,9 +138,9 @@ class AlertsPanel extends StatelessWidget {
       Text(switch (item['review_status']) { 'reviewed' => 'Marcada como revisada', 'false_positive' => 'Marcada como posible falso positivo', _ => 'Pendiente de revisar' }, style: const TextStyle(color: _green, fontSize: 12)),
       const SizedBox(height: 4),
       Wrap(spacing: 8, children: [
-        TextButton(onPressed: loading ? null : () => onReview(item['id'] as int, 'reviewed'), child: const Text('Revisada')),
-        TextButton(onPressed: loading ? null : () => onReview(item['id'] as int, 'false_positive'), child: const Text('Posible falso positivo')),
-        if (item['review_status'] != 'new') TextButton(onPressed: loading ? null : () => onReview(item['id'] as int, 'new'), child: const Text('Pendiente')),
+        TextButton(onPressed: busy ? null : () => onReview(item['id'] as int, 'reviewed'), child: const Text('Revisada')),
+        TextButton(onPressed: busy ? null : () => onReview(item['id'] as int, 'false_positive'), child: const Text('Posible falso positivo')),
+        if (item['review_status'] != 'new') TextButton(onPressed: busy ? null : () => onReview(item['id'] as int, 'new'), child: const Text('Pendiente')),
       ]),
     ])))),
   ]);

@@ -56,7 +56,12 @@ class _ShieldHomeState extends State<ShieldHome> {
   bool serverUsageUnavailable = false;
   DateTime? serverUsageRequestedAt;
   bool usageLoading = false;
-  bool alertsLoading = false;
+  bool alertsLoading = false, alertsChecking = false;
+  bool alertsInitialized = false;
+  int lastAlertId = 0;
+  final Set<int> unseenAlertIds = {};
+  int alertSession = 0;
+  Timer? alertsTimer;
   List<Map<String, dynamic>>? alerts;
   String? alertsError;
   String alertMonitoring = 'not_active';
@@ -85,7 +90,7 @@ class _ShieldHomeState extends State<ShieldHome> {
   }
 
   @override
-  void dispose() { monitor?.cancel(); gatewayCooldown?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
+  void dispose() { monitor?.cancel(); alertsTimer?.cancel(); gatewayCooldown?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
 
   Future<void> signIn() async {
     if (loading) return;
@@ -100,6 +105,10 @@ class _ShieldHomeState extends State<ShieldHome> {
       final blocked = await vpn.isKillSwitchEnabled();
       if (!mounted) return;
       setState(() { token = result; signedInAs = username.text.trim(); vpnConnected = active; trafficBlocked = blocked; password.clear(); });
+      alertSession++;
+      unawaited(refreshAlerts(background: true));
+      alertsTimer?.cancel();
+      alertsTimer = Timer.periodic(const Duration(seconds: 15), (_) => unawaited(refreshAlerts(background: true)));
       monitor?.cancel();
       monitor = Timer.periodic(const Duration(seconds: 4), (_) async {
         if (vpnLoading || token == null) return;
@@ -188,32 +197,48 @@ class _ShieldHomeState extends State<ShieldHome> {
     }
   }
 
-  Future<void> refreshAlerts() async {
-    if (alertsLoading || token == null) return;
+  void applyAlertFeed(SecurityAlertFeed result) {
+    final ids = result.alerts.map((item) => item['id'] as int).toList();
+    if (alertsInitialized) {
+      unseenAlertIds.addAll(ids.where((id) => id > lastAlertId));
+    }
+    for (final id in ids) {
+      if (id > lastAlertId) lastAlertId = id;
+    }
+    alertsInitialized = true;
+    alerts = result.alerts;
+    alertMonitoring = result.monitoring;
+    alertsError = null;
+  }
+
+  Future<void> refreshAlerts({bool background = false}) async {
+    if (alertsChecking || alertsLoading || token == null) return;
     final current = token!;
-    setState(() { alertsLoading = true; alertsError = null; });
+    final session = alertSession;
+    setState(() { alertsChecking = true; alertsLoading = !background || alerts == null; alertsError = null; });
     try {
       final result = await widget.api.securityAlerts(current);
-      if (mounted && token == current) setState(() { alerts = result.alerts; alertMonitoring = result.monitoring; });
+      if (mounted && token == current && alertSession == session) setState(() => applyAlertFeed(result));
     } catch (_) {
-      if (mounted && token == current) setState(() { alerts = null; alertsError = 'No se pudieron consultar las alertas.'; });
+      if (mounted && token == current && alertSession == session) setState(() => alertsError = 'No se pudieron actualizar las alertas. Reintentaremos automáticamente.');
     } finally {
-      if (mounted && token == current) setState(() => alertsLoading = false);
+      if (mounted && token == current && alertSession == session) setState(() { alertsLoading = false; alertsChecking = false; });
     }
   }
 
   Future<void> reviewAlert(int id, String status) async {
-    if (alertsLoading || token == null) return;
+    if (alertsLoading || alertsChecking || token == null) return;
     final current = token!;
+    final session = alertSession;
     setState(() { alertsLoading = true; alertsError = null; });
     try {
       await widget.api.reviewAlert(current, id, status);
       final result = await widget.api.securityAlerts(current);
-      if (mounted && token == current) setState(() { alerts = result.alerts; alertMonitoring = result.monitoring; });
+      if (mounted && token == current && alertSession == session) setState(() => applyAlertFeed(result));
     } catch (_) {
-      if (mounted && token == current) setState(() => alertsError = 'No se pudo guardar la revisión. Inténtalo de nuevo.');
+      if (mounted && token == current && alertSession == session) setState(() => alertsError = 'No se pudo guardar la revisión. Inténtalo de nuevo.');
     } finally {
-      if (mounted && token == current) setState(() => alertsLoading = false);
+      if (mounted && token == current && alertSession == session) setState(() => alertsLoading = false);
     }
   }
 
@@ -305,7 +330,9 @@ class _ShieldHomeState extends State<ShieldHome> {
     try {
       if (vpnConnected || trafficBlocked) await vpn.disconnect();
       monitor?.cancel();
-      if (mounted) setState(() { vpnGeneration++; token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; usageHistory = null; historyUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
+      alertsTimer?.cancel();
+      alertSession++;
+      if (mounted) setState(() { unseenAlertIds.clear(); alertsInitialized = false; lastAlertId = 0; vpnGeneration++; token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; usageHistory = null; historyUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertsChecking = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo desconectar la VPN.');
     } finally {
@@ -456,7 +483,7 @@ class _ShieldHomeState extends State<ShieldHome> {
               switch (page) {
                 1 => SettingsPanel(connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
                 2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable, history: usageHistory, historyUnavailable: historyUnavailable),
-                3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, error: alertsError, onRefresh: refreshAlerts, onReview: reviewAlert),
+                3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, busy: alertsLoading || alertsChecking, error: alertsError, onRefresh: () => refreshAlerts(), onReview: reviewAlert, newAlerts: unseenAlertIds.length, onAcknowledge: () => setState(() => unseenAlertIds.clear())),
                 _ => homePanel(),
               },
               if (page != 0 && error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13))],
@@ -467,7 +494,7 @@ class _ShieldHomeState extends State<ShieldHome> {
   });
 
   Widget navItem(int index, IconData icon, String label) => TextButton.icon(
-    onPressed: vpnLoading ? null : () => selectPage(index), icon: Icon(icon, size: 16), label: Text(label),
+    onPressed: vpnLoading ? null : () => selectPage(index), icon: Icon(icon, size: 16), label: Text(index == 3 && unseenAlertIds.isNotEmpty ? '$label · ${unseenAlertIds.length}' : label),
     style: TextButton.styleFrom(foregroundColor: page == index ? forest : const Color(0xff81937e), backgroundColor: page == index ? Colors.white.withValues(alpha: .75) : Colors.transparent, padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8), textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
   );
 
@@ -476,13 +503,13 @@ class _ShieldHomeState extends State<ShieldHome> {
     const SizedBox(height: 12), Text('Hola, $signedInAs', style: const TextStyle(fontSize: 29, color: deep, fontWeight: FontWeight.w800, letterSpacing: -.8)),
     const SizedBox(height: 9), const Text('Tu sesión está lista.', style: TextStyle(color: Color(0xFF6e7c6a), fontSize: 14)),
     const SizedBox(height: 36),
-    Center(child: AnimatedContainer(duration: const Duration(milliseconds: 350), width: 156, height: 156, decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFeef1e5), Color(0xFFbdceb1), Color(0xFF90a98c)]), border: Border.all(color: Colors.white.withValues(alpha: .8), width: 2), boxShadow: [BoxShadow(color: deep.withValues(alpha: vpnConnected ? .27 : .15), blurRadius: vpnConnected ? 32 : 22, offset: const Offset(0, 10))]), child: AnimatedSwitcher(duration: const Duration(milliseconds: 250), child: connectionTransition ? const Center(key: ValueKey('loading'), child: SizedBox(width: 46, height: 46, child: CircularProgressIndicator(color: forest, strokeWidth: 3))) : const Icon(Icons.power_settings_new_rounded, key: ValueKey('power'), size: 61, color: forest)))),
+    Center(child: PowerOrb(connected: vpnConnected, loading: connectionTransition)),
     const SizedBox(height: 25),
     Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : (dnsHealthy == false ? 'DNS sin respuesta' : (internetHealthy == false ? 'Prueba de Internet sin respuesta' : 'Conectado'))) : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
     const SizedBox(height: 8),
     Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null ? 'Comprobando la conexión con el servidor VPN.' : (dnsHealthy == false ? 'El DNS de la VPN no respondió a la prueba.' : (internetHealthy == false ? 'La prueba de Internet no respondió; algunas redes bloquean este tipo de comprobación.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar tu VPN.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
     const SizedBox(height: 30),
-    SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
+    SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: vpnConnected ? const Color(0xffa6433a) : forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
     const SizedBox(height: 12), Center(child: TextButton.icon(onPressed: vpnLoading ? null : manageDevices, icon: const Icon(Icons.devices_rounded, size: 17), label: const Text('Administrar dispositivos'), style: TextButton.styleFrom(foregroundColor: forest))),
     Center(child: TextButton.icon(onPressed: vpnLoading ? null : signOut, icon: const Icon(Icons.logout_rounded, size: 17), label: const Text('Cerrar sesión'), style: TextButton.styleFrom(foregroundColor: forest))),
   ]);
@@ -494,6 +521,60 @@ class _ShieldHomeState extends State<ShieldHome> {
 
 Widget shieldMark(double size) => Container(width: size, height: size, decoration: BoxDecoration(borderRadius: BorderRadius.circular(size * .32), gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF8da980), forest]), border: Border.all(color: Colors.white.withValues(alpha: .8)), boxShadow: [BoxShadow(color: forest.withValues(alpha: .22), blurRadius: 12, offset: const Offset(0, 5))]), child: Icon(Icons.shield_rounded, color: Colors.white.withValues(alpha: .95), size: size * .6));
 Widget pill(IconData icon, String title) => Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9), decoration: BoxDecoration(color: Colors.white.withValues(alpha: .38), borderRadius: BorderRadius.circular(30), border: Border.all(color: Colors.white.withValues(alpha: .5))), child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 15, color: forest), const SizedBox(width: 7), Text(title, style: const TextStyle(color: deep, fontSize: 11, fontWeight: FontWeight.w700))]));
+
+class PowerOrb extends StatefulWidget {
+  const PowerOrb({super.key, required this.connected, required this.loading});
+  final bool connected, loading;
+  @override
+  State<PowerOrb> createState() => _PowerOrbState();
+}
+
+class _PowerOrbState extends State<PowerOrb> {
+  Timer? pulseTimer;
+  bool bright = false;
+
+  void syncPulse() {
+    final shouldAnimate = widget.connected && !widget.loading && !MediaQuery.disableAnimationsOf(context);
+    if (shouldAnimate && pulseTimer == null) {
+      pulseTimer = Timer.periodic(const Duration(milliseconds: 1900), (_) {
+        if (mounted) setState(() => bright = !bright);
+      });
+    } else if (!shouldAnimate) {
+      pulseTimer?.cancel();
+      pulseTimer = null;
+      bright = false;
+    }
+  }
+
+  @override
+  void didChangeDependencies() { super.didChangeDependencies(); syncPulse(); }
+  @override
+  void didUpdateWidget(covariant PowerOrb oldWidget) { super.didUpdateWidget(oldWidget); syncPulse(); }
+  @override
+  void dispose() { pulseTimer?.cancel(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) => AnimatedScale(
+    scale: widget.connected && bright ? 1.045 : 1,
+    duration: const Duration(milliseconds: 1500), curve: Curves.easeInOut,
+    child: AnimatedContainer(
+      key: const ValueKey('connection-orb'),
+      duration: const Duration(milliseconds: 1500), curve: Curves.easeInOut,
+      width: 156, height: 156,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: widget.connected && bright
+          ? const [Color(0xfff8fff1), Color(0xffd3e9c8), Color(0xff9abb94)]
+          : const [Color(0xffeef1e5), Color(0xffbdceb1), Color(0xff90a98c)]),
+        border: Border.all(color: Colors.white.withValues(alpha: .8), width: 2),
+        boxShadow: [BoxShadow(color: green.withValues(alpha: widget.connected && bright ? .42 : .15), blurRadius: widget.connected && bright ? 42 : 22, spreadRadius: widget.connected && bright ? 4 : 0, offset: const Offset(0, 8))],
+      ),
+      child: AnimatedSwitcher(duration: const Duration(milliseconds: 250), child: widget.loading
+        ? const Center(key: ValueKey('loading'), child: SizedBox(width: 46, height: 46, child: CircularProgressIndicator(color: forest, strokeWidth: 3)))
+        : const Icon(Icons.power_settings_new_rounded, key: ValueKey('power'), size: 61, color: forest)),
+    ),
+  );
+}
 
 class GlassPanel extends StatelessWidget {
   const GlassPanel({super.key, required this.child});
