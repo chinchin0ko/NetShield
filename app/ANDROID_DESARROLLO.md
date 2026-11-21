@@ -4,7 +4,7 @@ La aplicación reutiliza las pantallas y la API de Linux; el controlador Android
 
 Esta versión está en desarrollo: no se ha probado en un teléfono real. La función de bloqueo permanente de tráfico aún no está implementada en Android y se muestra deshabilitada. La activación del túnel no demuestra por sí misma que haya tráfico o handshake. En particular, comprueba IPv4, IPv6, DNS, pérdida de red, cambio entre Wi-Fi y datos, cierre de la aplicación y revocación antes de considerar su distribución.
 
-Hay una integración de notificaciones push preparada con Firebase y una cola persistente en el backend. No está desplegada ni verificada de extremo a extremo. Se necesita un proyecto Firebase, registrar la app con el identificador anterior, configurar el cliente y el emisor autenticado del servidor, y verificar envío y revocación en un teléfono. `google-services.json` pertenece en `android/app/`; las credenciales privadas del emisor deben permanecer fuera del repositorio y del cliente.
+Firebase y la cola persistente de notificaciones están configurados en el servidor de desarrollo. La compilación local incluye `google-services.json`; el servidor autentica con una cuenta de servicio protegida. Se ha probado el registro autenticado y la conectividad a FCM, pero falta verificar la recepción y la revocación en un teléfono. `google-services.json` pertenece en `android/app/`; las credenciales privadas del emisor deben permanecer fuera del repositorio y del cliente.
 
 Compilación de depuración (requiere Flutter y Android SDK con licencias aceptadas):
 

@@ -1,14 +1,16 @@
 [Unit]
 Description=NetShield mobile push delivery
-After=network-online.target
-Wants=network-online.target
+After=network-online.target netshield-fcm-tunnel.service
+Wants=network-online.target netshield-fcm-tunnel.service
 
 [Service]
 Type=simple
 User=netshield-api
 Group=netshield-api
 WorkingDirectory=/opt/netshield-api-dev/API
+EnvironmentFile=/etc/netshield-api-dev/app.env
 EnvironmentFile=/etc/netshield-api-dev/push.env
+Environment=HTTPS_PROXY=http://127.0.0.1:18888
 ExecStart=/opt/netshield-api-dev/venv/bin/python -m app.infrastructure.push_worker
 Restart=on-failure
 RestartSec=10
