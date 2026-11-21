@@ -55,11 +55,12 @@ String formatBytes(int value) {
 }
 
 class UsagePanel extends StatelessWidget {
-  const UsagePanel({super.key, required this.connected, required this.usage, required this.loading, required this.serverUsage, required this.serverUnavailable});
+  const UsagePanel({super.key, required this.connected, required this.usage, required this.loading, required this.serverUsage, required this.serverUnavailable, required this.history, required this.historyUnavailable});
   final bool connected, loading;
   final TrafficUsage? usage;
   final List<VpnDeviceUsage>? serverUsage;
-  final bool serverUnavailable;
+  final bool serverUnavailable, historyUnavailable;
+  final List<VpnUsageDay>? history;
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     const PanelHeading('TU ACTIVIDAD', 'Consumo', 'El tráfico de este dispositivo durante la conexión actual.'),
@@ -83,6 +84,18 @@ class UsagePanel extends StatelessWidget {
       Text('Dispositivo ${device.deviceId.substring(0, 8)}', style: const TextStyle(color: _ink, fontWeight: FontWeight.w800, fontSize: 13)),
       const SizedBox(height: 5),
       Text(device.uploadBytes == null || device.downloadBytes == null ? 'Contadores no disponibles' : 'Enviado ${formatBytes(device.uploadBytes!)} · Recibido ${formatBytes(device.downloadBytes!)}', style: const TextStyle(color: _muted, fontSize: 12)),
+    ])))),
+    const SizedBox(height: 24),
+    const Text('Historial reciente', style: TextStyle(color: _ink, fontSize: 16, fontWeight: FontWeight.w800)),
+    const SizedBox(height: 8),
+    const Text('Estimaciones por día UTC a partir de muestras. Los reinicios o interrupciones pueden dejar datos incompletos; no es facturación.', style: TextStyle(color: _muted, fontSize: 12, height: 1.4)),
+    const SizedBox(height: 12),
+    if (history == null) SoftCard(child: Text(historyUnavailable ? 'No pudimos consultar el historial.' : 'Consultando historial…', style: const TextStyle(color: _muted, fontSize: 12)))
+    else if (history!.isEmpty) const SoftCard(child: Text('Aún no hay muestras guardadas.', style: TextStyle(color: _muted, fontSize: 12)))
+    else ...history!.map((day) => Padding(padding: const EdgeInsets.only(bottom: 8), child: SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('${day.day} · Dispositivo ${day.deviceId.substring(0, 8)}', style: const TextStyle(color: _ink, fontWeight: FontWeight.w800, fontSize: 13)),
+      const SizedBox(height: 5),
+      Text(day.uploadBytes == null || day.downloadBytes == null ? 'Sin intervalos medibles todavía' : 'Enviado ${formatBytes(day.uploadBytes!)} · Recibido ${formatBytes(day.downloadBytes!)}${day.incomplete ? ' · datos incompletos' : ''}', style: const TextStyle(color: _muted, fontSize: 12)),
     ])))),
   ]);
 }

@@ -43,10 +43,17 @@ class LinuxVpn {
   /// failed probe does not establish whether the physical network or server
   /// is responsible, and says nothing about DNS or public Internet access.
   Future<bool?> gatewayReachable() async {
+    return _pingThroughTunnel('10.8.0.1');
+  }
+
+  /// An unanswered ICMP probe is inconclusive: some networks block ping.
+  Future<bool?> internetReachable() => _pingThroughTunnel('1.1.1.1');
+
+  Future<bool?> _pingThroughTunnel(String address) async {
     final id = await _deviceId();
     final name = 'ns${id.substring(0, 12)}';
     try {
-      final result = await Process.run('ping', ['-4', '-I', name, '-c', '1', '-W', '3', '10.8.0.1'])
+      final result = await Process.run('ping', ['-4', '-I', name, '-c', '1', '-W', '3', address])
           .timeout(const Duration(seconds: 5));
       if (result.exitCode == 0) return true;
       if (result.exitCode == 1) return false;
@@ -55,6 +62,47 @@ class LinuxVpn {
       return null;
     } on TimeoutException {
       return null;
+    }
+  }
+
+  /// Query the VPN resolver only while the traffic lock is active. The socket
+  /// is bound to the tunnel address and the resolver route must use the tunnel.
+  Future<bool?> dnsResponds() async {
+    if (!await isKillSwitchEnabled()) return null;
+    final id = await _deviceId();
+    final name = 'ns${id.substring(0, 12)}';
+    RawDatagramSocket? socket;
+    try {
+      final dns = await Process.run('nmcli', ['-g', 'IP4.DNS', 'device', 'show', name]).timeout(const Duration(seconds: 3));
+      final server = InternetAddress.tryParse(dns.stdout.toString().trim().split('\n').first);
+      if (dns.exitCode != 0 || server?.type != InternetAddressType.IPv4) return null;
+      final addresses = await Process.run('ip', ['-j', '-4', 'addr', 'show', 'dev', name]).timeout(const Duration(seconds: 3));
+      if (addresses.exitCode != 0) return null;
+      final devices = jsonDecode(addresses.stdout.toString()) as List;
+      final info = (devices.first as Map)['addr_info'] as List;
+      final local = InternetAddress.tryParse((info.first as Map)['local'] as String);
+      if (local?.type != InternetAddressType.IPv4) return null;
+      final route = await Process.run('ip', ['-j', '-4', 'route', 'get', server!.address, 'from', local!.address]).timeout(const Duration(seconds: 3));
+      if (route.exitCode != 0) return null;
+      final routes = jsonDecode(route.stdout.toString()) as List;
+      if (routes.isEmpty || (routes.first as Map)['dev'] != name || !await isKillSwitchEnabled()) return null;
+      socket = await RawDatagramSocket.bind(local, 0);
+      final transaction = Random.secure().nextInt(65536);
+      final packet = <int>[transaction >> 8, transaction & 255, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0];
+      for (final label in ['netshield-connectivity', 'invalid']) {
+        packet.add(label.length);
+        packet.addAll(ascii.encode(label));
+      }
+      packet.addAll([0, 0, 1, 0, 1]);
+      socket.send(packet, server, 53);
+      final response = await socket.where((event) => event == RawSocketEvent.read).map((_) => socket!.receive()).where((d) => d != null && d.address == server && d.port == 53 && d.data.length >= 12 && d.data[0] == transaction >> 8 && d.data[1] == (transaction & 255) && (d.data[2] & 0x80) != 0).first.timeout(const Duration(seconds: 3), onTimeout: () => null);
+      if (response == null) return false;
+      final code = response.data[3] & 15;
+      return code == 0 || code == 3;
+    } catch (_) {
+      return null;
+    } finally {
+      socket?.close();
     }
   }
 

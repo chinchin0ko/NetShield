@@ -44,11 +44,15 @@ class _ShieldHomeState extends State<ShieldHome> {
   bool gatewayChecking = false;
   bool? gatewayHealthy;
   int gatewayFailures = 0;
+  bool? dnsHealthy, internetHealthy;
+  int dnsFailures = 0, internetFailures = 0;
   int vpnGeneration = 0;
   Timer? gatewayCooldown;
   int page = 0;
   TrafficUsage? usage;
   List<VpnDeviceUsage>? serverUsage;
+  List<VpnUsageDay>? usageHistory;
+  bool historyUnavailable = false;
   bool serverUsageUnavailable = false;
   DateTime? serverUsageRequestedAt;
   bool usageLoading = false;
@@ -103,7 +107,7 @@ class _ShieldHomeState extends State<ShieldHome> {
           final active = await vpn.isConnected();
           final blocked = await vpn.isKillSwitchEnabled();
           if (mounted && !vpnLoading && (vpnConnected != active || trafficBlocked != blocked)) {
-            setState(() { if (vpnConnected != active) vpnGeneration++; vpnConnected = active; trafficBlocked = blocked; if (!active) { usage = null; gatewayHealthy = null; gatewayFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; } });
+            setState(() { if (vpnConnected != active) vpnGeneration++; vpnConnected = active; trafficBlocked = blocked; if (!active) { usage = null; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; } });
           }
           if (mounted && active) await refreshGatewayHealth();
           if (mounted && page == 2) await refreshUsage();
@@ -154,8 +158,18 @@ class _ShieldHomeState extends State<ShieldHome> {
     gatewayCooldown = Timer(const Duration(seconds: 15), () {});
     try {
       final reachable = await vpn.gatewayReachable();
+      final results = reachable == true
+          ? await Future.wait([vpn.dnsResponds(), vpn.internetReachable()])
+          : <bool?>[null, null];
       if (!mounted || token != current || !vpnConnected || vpnGeneration != generation) return;
       setState(() {
+        final dns = results[0], internet = results[1];
+        if (dns == true) { dnsFailures = 0; dnsHealthy = true; }
+        else if (dns == false) { dnsFailures++; if (dnsFailures >= 2) dnsHealthy = false; }
+        else { dnsFailures = 0; dnsHealthy = null; }
+        if (internet == true) { internetFailures = 0; internetHealthy = true; }
+        else if (internet == false) { internetFailures++; if (internetFailures >= 2) internetHealthy = false; }
+        else { internetFailures = 0; internetHealthy = null; }
         if (reachable == true) {
           gatewayFailures = 0;
           gatewayHealthy = true;
@@ -222,6 +236,12 @@ class _ShieldHomeState extends State<ShieldHome> {
         } catch (_) {
           if (mounted && token == currentToken) setState(() { serverUsage = null; serverUsageUnavailable = true; });
         }
+        try {
+          final result = await widget.api.vpnUsageHistory(currentToken);
+          if (mounted && token == currentToken) setState(() { usageHistory = result; historyUnavailable = false; });
+        } catch (_) {
+          if (mounted && token == currentToken) setState(() { usageHistory = null; historyUnavailable = true; });
+        }
       }
     } finally {
       if (mounted) setState(() => usageLoading = false);
@@ -265,7 +285,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     setState(() { vpnLoading = true; connectionTransition = true; error = null; });
     try {
       if (vpnConnected || trafficBlocked) { await vpn.disconnect(); } else { await vpn.connect(token!, signedInAs!); }
-      if (mounted) setState(() { vpnGeneration++; vpnConnected = !(vpnConnected || trafficBlocked); trafficBlocked = vpnConnected; gatewayHealthy = vpnConnected ? true : null; gatewayFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; if (!vpnConnected) usage = null; });
+      if (mounted) setState(() { vpnGeneration++; vpnConnected = !(vpnConnected || trafficBlocked); trafficBlocked = vpnConnected; gatewayHealthy = vpnConnected ? true : null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; if (!vpnConnected) usage = null; });
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
@@ -285,7 +305,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     try {
       if (vpnConnected || trafficBlocked) await vpn.disconnect();
       monitor?.cancel();
-      if (mounted) setState(() { vpnGeneration++; token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
+      if (mounted) setState(() { vpnGeneration++; token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; usageHistory = null; historyUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo desconectar la VPN.');
     } finally {
@@ -435,7 +455,7 @@ class _ShieldHomeState extends State<ShieldHome> {
             children: [
               switch (page) {
                 1 => SettingsPanel(connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
-                2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable),
+                2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable, history: usageHistory, historyUnavailable: historyUnavailable),
                 3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, error: alertsError, onTest: createTestAlert, onRefresh: refreshAlerts),
                 _ => homePanel(),
               },
@@ -458,9 +478,9 @@ class _ShieldHomeState extends State<ShieldHome> {
     const SizedBox(height: 36),
     Center(child: AnimatedContainer(duration: const Duration(milliseconds: 350), width: 156, height: 156, decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFeef1e5), Color(0xFFbdceb1), Color(0xFF90a98c)]), border: Border.all(color: Colors.white.withValues(alpha: .8), width: 2), boxShadow: [BoxShadow(color: deep.withValues(alpha: vpnConnected ? .27 : .15), blurRadius: vpnConnected ? 32 : 22, offset: const Offset(0, 10))]), child: AnimatedSwitcher(duration: const Duration(milliseconds: 250), child: connectionTransition ? const Center(key: ValueKey('loading'), child: SizedBox(width: 46, height: 46, child: CircularProgressIndicator(color: forest, strokeWidth: 3))) : const Icon(Icons.power_settings_new_rounded, key: ValueKey('power'), size: 61, color: forest)))),
     const SizedBox(height: 25),
-    Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : 'Conectado') : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
+    Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : (dnsHealthy == false ? 'DNS sin respuesta' : (internetHealthy == false ? 'Prueba de Internet sin respuesta' : 'Conectado'))) : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
     const SizedBox(height: 8),
-    Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null ? 'Comprobando la conexión con el servidor VPN.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar el túnel de desarrollo.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
+    Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null ? 'Comprobando la conexión con el servidor VPN.' : (dnsHealthy == false ? 'El DNS de la VPN no respondió a la prueba.' : (internetHealthy == false ? 'La prueba de Internet no respondió; algunas redes bloquean este tipo de comprobación.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar el túnel de desarrollo.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
     const SizedBox(height: 30),
     SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
     const SizedBox(height: 12), Center(child: TextButton.icon(onPressed: vpnLoading ? null : manageDevices, icon: const Icon(Icons.devices_rounded, size: 17), label: const Text('Administrar dispositivos'), style: TextButton.styleFrom(foregroundColor: forest))),

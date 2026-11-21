@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:netshield_app/services/api_client.dart';
@@ -15,6 +16,31 @@ void main() {
       final devices = await api.vpnUsage('token');
       expect(devices.single.uploadBytes, isNull);
       expect(devices.single.downloadBytes, 12);
+    } finally {
+      api.close();
+      await server.close(force: true);
+    }
+  });
+
+  test('reads sampled history and rejects malformed devices', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    var invalid = false;
+    server.listen((request) async {
+      await request.drain<void>();
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'scope': 'estimated_sampled_counters', 'timezone': 'UTC', 'days': [
+        {'device_id': invalid ? 'bad' : 'a' * 32, 'day': '2026-11-21', 'upload_bytes': 12, 'download_bytes': null, 'incomplete': true}
+      ]}));
+      await request.response.close();
+    });
+    final api = ApiClient(baseUrl: 'http://127.0.0.1:${server.port}');
+    try {
+      final result = await api.vpnUsageHistory('token');
+      expect(result.single.uploadBytes, 12);
+      expect(result.single.downloadBytes, isNull);
+      expect(result.single.incomplete, isTrue);
+      invalid = true;
+      await expectLater(api.vpnUsageHistory('token'), throwsA(isA<ApiException>()));
     } finally {
       api.close();
       await server.close(force: true);

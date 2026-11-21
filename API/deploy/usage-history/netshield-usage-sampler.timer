@@ -1,0 +1,10 @@
+[Unit]
+Description=Sample NetShield VPN usage every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=netshield-usage-sampler.service
+
+[Install]
+WantedBy=timers.target

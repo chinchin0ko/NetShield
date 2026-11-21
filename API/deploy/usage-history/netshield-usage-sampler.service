@@ -1,0 +1,16 @@
+[Unit]
+Description=Collect NetShield VPN usage samples
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=netshield-api
+Group=netshield-api
+WorkingDirectory=/opt/netshield-api-dev/API
+EnvironmentFile=/etc/netshield-api-dev/app.env
+Environment=NETSHIELD_WG_BRIDGE_KEY=/var/lib/netshield-wg-bridge/id_ed25519
+Environment=NETSHIELD_WG_BRIDGE_HOST=ubuntu@10.0.0.124
+Environment=NETSHIELD_WG_BRIDGE_KNOWN_HOSTS=/var/lib/netshield-wg-bridge/known_hosts
+ExecStart=/opt/netshield-api-dev/venv/bin/python -m app.collect_usage
+NoNewPrivileges=true
+PrivateTmp=true

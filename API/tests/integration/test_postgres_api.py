@@ -231,3 +231,36 @@ def test_sensor_ingestion_authenticates_and_checks_current_owner(lab_database, m
     with database() as conn:
         assert conn.execute('SELECT count(*) FROM personal_security_alerts WHERE user_id=1').fetchone()[0] == 1
         assert conn.execute('SELECT count(*) FROM personal_security_alerts WHERE user_id=2').fetchone()[0] == 0
+
+
+def test_usage_history_isolated_and_reset_gaps(lab_database, monkeypatch):
+    from app.infrastructure.postgres import database
+    from app.infrastructure.usage_history import collect_samples
+    device = 'a' * 32
+    other_device = 'b' * 32
+    with database() as conn:
+        conn.execute("INSERT INTO vpn_address_assignments (address,user_id,device_id,valid_from) VALUES ('10.8.0.2',1,%s,now()-interval '1 hour'), ('10.8.0.3',2,%s,now()-interval '1 hour')", (device, other_device))
+    values = {1: (100, 200), 2: (400, 500)}
+    def fake_usage(user_id):
+        upload, download = values[user_id]
+        return [{'device_id': device if user_id == 1 else other_device, 'upload_bytes': upload, 'download_bytes': download}]
+    monkeypatch.setattr('app.infrastructure.wg_easy_bridge.device_usage', fake_usage)
+    assert collect_samples() == (2, 0)
+    values[1] = (150, 280)
+    values[2] = (450, 550)
+    assert collect_samples() == (2, 0)
+    client = TestClient(app)
+    login = client.post('/auth/token', json={'username': 'integration-user', 'password': 'test passphrase 1234'}).json()['access_token']
+    headers = {'Authorization': 'Bearer ' + login}
+    assert client.get('/vpn/usage/history').status_code == 401
+    response = client.get('/vpn/usage/history', headers=headers)
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'no-store'
+    days = response.json()['days']
+    assert len(days) == 1 and days[0]['device_id'] == device
+    assert days[0]['upload_bytes'] == 50 and days[0]['download_bytes'] == 80
+    assert days[0]['incomplete'] is True
+    values[1] = (3, 4)  # a reset must not turn the old total into traffic
+    assert collect_samples() == (2, 0)
+    days = client.get('/vpn/usage/history', headers=headers).json()['days']
+    assert days[0]['upload_bytes'] == 50 and days[0]['download_bytes'] == 80

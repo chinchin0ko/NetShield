@@ -7,7 +7,11 @@ import 'package:netshield_app/services/linux_vpn.dart';
 class FakeVpn extends LinuxVpn {
   FakeVpn(super.api);
   bool connected = false;
-  bool? gatewayResult = true;
+  bool? gatewayResult = true, dnsResult = true, internetResult = true;
+  @override
+  Future<bool?> dnsResponds() async => dnsResult;
+  @override
+  Future<bool?> internetReachable() async => internetResult;
   @override
   Future<bool?> gatewayReachable() async => gatewayResult;
   bool? lockOverride;
@@ -42,6 +46,8 @@ class FakeApi extends ApiClient {
   Future<List<Map<String, dynamic>>> vpnDevices(String token) async => [{'device_id': 'b' * 32, 'enabled': true}];
   @override
   Future<List<VpnDeviceUsage>> vpnUsage(String token) async => [VpnDeviceUsage('b' * 32, 4096, 8192)];
+  @override
+  Future<List<VpnUsageDay>> vpnUsageHistory(String token) async => [VpnUsageDay('b' * 32, '2026-11-21', 1024, 2048, true)];
   @override
   Future<void> revokeVpnDevice(String token, String deviceId) async { revoked = true; }
   @override
@@ -85,6 +91,8 @@ void main() {
     expect(find.text('2.0 KB'), findsOneWidget);
     expect(find.text('1.0 KB'), findsOneWidget);
     expect(find.text('Enviado 4.0 KB · Recibido 8.0 KB'), findsOneWidget);
+    await tester.ensureVisible(find.text('Historial reciente'));
+    expect(find.text('Enviado 1.0 KB · Recibido 2.0 KB · datos incompletos'), findsOneWidget);
     await tester.tap(find.text('Alertas'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Detección no disponible'), findsOneWidget);
@@ -144,6 +152,42 @@ void main() {
     expect(find.text('VPN sin respuesta'), findsOneWidget);
     expect(vpn.connected, isTrue);
     vpn.gatewayResult = true;
+    await tester.pump(const Duration(seconds: 16));
+    await tester.pump();
+    expect(find.text('Conectado'), findsOneWidget);
+    expect(vpn.connected, isTrue);
+  });
+
+  testWidgets('DNS and Internet probes warn after repeated failures and recover', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    final vpn = FakeVpn(api);
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Conectar'));
+    await tester.pumpAndSettle();
+    vpn.dnsResult = false;
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump();
+    expect(find.text('DNS sin respuesta'), findsNothing);
+    await tester.pump(const Duration(seconds: 16));
+    await tester.pump();
+    expect(find.text('DNS sin respuesta'), findsOneWidget);
+    expect(vpn.connected, isTrue);
+    vpn.dnsResult = true;
+    vpn.internetResult = false;
+    await tester.pump(const Duration(seconds: 16));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 16));
+    await tester.pump();
+    expect(find.text('Prueba de Internet sin respuesta'), findsOneWidget);
+    vpn.internetResult = true;
     await tester.pump(const Duration(seconds: 16));
     await tester.pump();
     expect(find.text('Conectado'), findsOneWidget);

@@ -15,6 +15,13 @@ class VpnDeviceUsage {
   final int? downloadBytes;
 }
 
+class VpnUsageDay {
+  const VpnUsageDay(this.deviceId, this.day, this.uploadBytes, this.downloadBytes, this.incomplete);
+  final String deviceId, day;
+  final int? uploadBytes, downloadBytes;
+  final bool incomplete;
+}
+
 class SecurityAlertFeed {
   const SecurityAlertFeed(this.alerts, this.monitoring);
   final List<Map<String, dynamic>> alerts;
@@ -94,6 +101,21 @@ class ApiClient {
       devices.add(VpnDeviceUsage(item['device_id'] as String, upload as int?, download as int?));
     }
     return devices;
+  }
+
+  Future<List<VpnUsageDay>> vpnUsageHistory(String token) async {
+    final result = await _authorized(token, 'GET', '/vpn/usage/history');
+    if (result is! Map || result['scope'] != 'estimated_sampled_counters' || result['timezone'] != 'UTC' || result['days'] is! List) {
+      throw const ApiException('El historial no está disponible.');
+    }
+    return (result['days'] as List).map((item) {
+      if (item is! Map || item['device_id'] is! String || !RegExp(r'^[0-9a-f]{32}$').hasMatch(item['device_id']) || item['day'] is! String || !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(item['day']) || item['incomplete'] is! bool) {
+        throw const ApiException('El historial es inválido.');
+      }
+      final up = item['upload_bytes'], down = item['download_bytes'];
+      if ((up != null && (up is! int || up < 0)) || (down != null && (down is! int || down < 0))) throw const ApiException('El historial es inválido.');
+      return VpnUsageDay(item['device_id'], item['day'], up as int?, down as int?, item['incomplete']);
+    }).toList();
   }
 
   Future<SecurityAlertFeed> securityAlerts(String token) async {

@@ -164,6 +164,17 @@ def vpn_usage(response: Response, user=Depends(current_identity)):
     return {'devices': devices, 'scope': 'current_wireguard_counters'}
 
 
+@router.get('/vpn/usage/history')
+def vpn_usage_history(response: Response, user=Depends(current_identity)):
+    from app.infrastructure.usage_history import history_for_user
+    try:
+        days = history_for_user(user.id)
+    except (psycopg.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='VPN usage history unavailable') from None
+    response.headers['Cache-Control'] = 'no-store'
+    return {'days': days, 'scope': 'estimated_sampled_counters', 'timezone': 'UTC'}
+
+
 @router.post('/vpn/devices/{device_id}/revoke', status_code=204)
 def revoke_vpn_device(device_id: str, user=Depends(current_identity)):
     from app.infrastructure.wg_easy_bridge import revoke, ProvisioningError

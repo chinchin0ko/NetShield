@@ -63,3 +63,10 @@ Antes de atribuir un evento, la API toma el bloqueo de asignaciones, compara la 
 El supervisor reinicia el sensor si cambia el PID del contenedor. Las rutas administrativas directas que alteran WireGuard sin el puente coordinado siguen fuera de este control; no deben utilizarse mientras se atribuyen alertas. La rotación de EVE es best-effort y puede perder eventos. Una consulta sintética al dominio reservado atravesó el túnel y generó un evento real en Suricata; el recolector, PostgreSQL y la API lo entregaron a la cuenta propietaria y no a una segunda cuenta. El evento está etiquetado como simulado; no demuestra detección de malware real ni cobertura completa. La recuperación tras reemplazar el contenedor sigue pendiente; no confundir los eventos del botón de prueba con eventos del sensor.
 
 El recolector normaliza la zona horaria `+0000` que genera Suricata para compatibilidad con versiones antiguas de Python. Antes de esa corrección descartaba silenciosamente esos eventos.
+
+
+## Historial muestreado en desarrollo
+
+La migración 008 guarda muestras de contadores por cuenta y dispositivo, sin sitios visitados ni contenido. `netshield-usage-sampler.timer` ejecuta el recolector cada cinco minutos; conserva muestras durante 30 días y la API autenticada `GET /vpn/usage/history` muestra hasta siete días UTC para el propietario. La primera muestra, los huecos mayores de 30 minutos y las bajadas de contador no se suman y se marcan como incompletos. Un reinicio seguido de tráfico suficiente para superar el contador anterior puede pasar inadvertido, por lo que las cifras son estimaciones, no facturación ni medición exacta. La lectura y limpieza requieren que el servicio y PostgreSQL estén disponibles. La recolección actualmente consulta cuentas secuencialmente y deberá revisarse antes de crecer.
+
+El 21 de noviembre de 2026 se aplicó la migración y se activó el temporizador en desarrollo; el primer ciclo registró muestras para cuatro cuentas. PostgreSQL aislado verificó separación de cuentas, reinicios y autenticación. El estado de alerta experimental indica un heartbeat reciente, no una garantía de detección ni de entrega sin pérdida.
