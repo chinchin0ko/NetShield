@@ -1,12 +1,12 @@
 pkgname=netshield-vpn-dev
 pkgver=0.1.0
-pkgrel=21
+pkgrel=22
 install=netshield.install
 pkgdesc='NetShield VPN development desktop client'
 arch=('x86_64')
 url='https://github.com/chinchin0ko/NetShield'
 license=('custom')
-depends=('gtk3' 'networkmanager' 'wireguard-tools' 'nftables' 'polkit' 'python' 'iputils' 'hicolor-icon-theme' 'libnotify')
+depends=('gtk3' 'networkmanager' 'wireguard-tools' 'nftables' 'polkit' 'python' 'iputils' 'hicolor-icon-theme' 'libnotify' 'libayatana-appindicator')
 source=('netshield-arch-input.tar.gz')
 sha256sums=('@SHA256@')
 options=('!strip')

@@ -1,12 +1,14 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <libayatana-appindicator/app-indicator.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  AppIndicator* indicator;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -16,9 +18,64 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
+// Keep the window recoverable on desktops without a system tray.
+static gboolean tray_available() {
+  g_autoptr(GError) error = nullptr;
+  g_autoptr(GDBusConnection) bus = g_bus_get_sync(G_BUS_TYPE_SESSION, nullptr, &error);
+  if (bus == nullptr) return FALSE;
+  g_autoptr(GVariant) reply = g_dbus_connection_call_sync(
+      bus, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+      "org.freedesktop.DBus", "NameHasOwner",
+      g_variant_new("(s)", "org.kde.StatusNotifierWatcher"),
+      G_VARIANT_TYPE("(b)"), G_DBUS_CALL_FLAGS_NONE, 1000, nullptr, nullptr);
+  gboolean available = FALSE;
+  if (reply != nullptr) g_variant_get(reply, "(b)", &available);
+  return available;
+}
+
+static void show_window(GtkMenuItem*, gpointer data) {
+  gtk_window_present(GTK_WINDOW(data));
+}
+
+static void quit_application(GtkMenuItem*, gpointer data) {
+  g_application_quit(G_APPLICATION(data));
+}
+
+static gboolean on_window_close(GtkWidget* window, GdkEvent*, gpointer) {
+  if (tray_available()) {
+    gtk_widget_hide(window);
+  } else {
+    gtk_window_iconify(GTK_WINDOW(window));
+  }
+  return TRUE;
+}
+
+static void setup_indicator(MyApplication* self, GtkWindow* window) {
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+  self->indicator = app_indicator_new("netshield-vpn", "netshield",
+                                      APP_INDICATOR_CATEGORY_APPLICATION_STATUS);
+  G_GNUC_END_IGNORE_DEPRECATIONS
+  GtkWidget* menu = gtk_menu_new();
+  GtkWidget* open = gtk_menu_item_new_with_label("Abrir NetShield");
+  GtkWidget* quit = gtk_menu_item_new_with_label("Salir de la aplicación (mantener VPN)");
+  g_signal_connect(open, "activate", G_CALLBACK(show_window), window);
+  g_signal_connect(quit, "activate", G_CALLBACK(quit_application), self);
+  gtk_menu_shell_append(GTK_MENU_SHELL(menu), open);
+  gtk_menu_shell_append(GTK_MENU_SHELL(menu), quit);
+  gtk_widget_show_all(menu);
+  app_indicator_set_menu(self->indicator, GTK_MENU(menu));
+  app_indicator_set_title(self->indicator, "NetShield VPN");
+  app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_ACTIVE);
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+  GList* windows = gtk_application_get_windows(GTK_APPLICATION(application));
+  if (windows != nullptr) {
+    gtk_window_present(GTK_WINDOW(windows->data));
+    return;
+  }
 
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
@@ -35,6 +92,8 @@ static void my_application_activate(GApplication* application) {
 
   gtk_window_set_title(window, "NetShield VPN");
   gtk_window_set_icon_name(window, "netshield");
+  setup_indicator(self, window);
+  g_signal_connect(window, "delete-event", G_CALLBACK(on_window_close), nullptr);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
@@ -103,6 +162,7 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&self->indicator);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 
@@ -126,5 +186,5 @@ MyApplication* my_application_new() {
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_NON_UNIQUE, nullptr));
+                                     static_cast<GApplicationFlags>(0), nullptr));
 }
