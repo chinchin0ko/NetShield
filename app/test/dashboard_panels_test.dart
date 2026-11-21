@@ -12,10 +12,26 @@ void main() {
       VpnUsageDay('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '2026-11-21', null, 2048, false),
     ];
     await tester.pumpWidget(const MaterialApp(home: Scaffold(body: UsageChart(history: history))));
+    await tester.tap(find.byKey(const ValueKey('usage-day-2026-11-20')));
+    await tester.pumpAndSettle();
+    expect(find.text('4.0 KB'), findsOneWidget);
+    expect(find.text('—'), findsNWidgets(5));
+    await tester.tap(find.byKey(const ValueKey('usage-day-2026-11-15')));
+    await tester.pumpAndSettle();
     expect(find.text('4.0 KB'), findsOneWidget);
     expect(find.text('11-20*'), findsOneWidget);
     expect(find.byTooltip('2026-11-20, recibido 2.5 KB, enviado 1.5 KB, muestra incompleta'), findsOneWidget);
     expect(find.byTooltip('2026-11-21, recibido 2.0 KB, enviado sin datos, muestra incompleta'), findsOneWidget);
+  });
+
+  testWidgets('chart handles recent days without measurable counters', (tester) async {
+    const history = [
+      VpnUsageDay('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '2026-11-01', 1, 1, false),
+      VpnUsageDay('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '2026-11-21', null, null, true),
+    ];
+    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: UsageChart(history: history))));
+    expect(find.text('No hay intervalos medibles en los últimos siete días registrados.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('alert filters and details use only recorded information', (tester) async {
@@ -32,6 +48,8 @@ void main() {
       onRefresh: () {}, onReview: (_, _) {}, newAlerts: 0, onAcknowledge: () {},
     )))));
     expect(find.text('ET PHISHING indicador'), findsOneWidget);
+    expect(tester.widget<Text>(find.text('Severidad Alta')).style!.color, const Color(0xffb13f3a));
+    expect(tester.widget<Text>(find.text('Severidad Media')).style!.color, const Color(0xffa76b1c));
     await tester.tap(find.text('Pendientes'));
     await tester.pumpAndSettle();
     expect(find.text('ET PHISHING indicador'), findsNothing);

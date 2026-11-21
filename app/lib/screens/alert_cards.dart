@@ -51,20 +51,26 @@ class AlertCard extends StatelessWidget {
     final device = item['device_id'] as String;
     final timestamp = item['occurred_at'] as String;
     final reviewedAt = item['reviewed_at'];
-    final severityColor = severity == 1 ? const Color(0xffa3463d) : severity == 2 ? const Color(0xff9a6d2e) : _green;
+    final severityColor = switch (severity) {
+      1 => const Color(0xffb13f3a),
+      2 => const Color(0xffa76b1c),
+      3 => const Color(0xff477c65),
+      _ => const Color(0xff65736c),
+    };
     return Container(
-      decoration: BoxDecoration(color: Colors.white.withValues(alpha: .56), borderRadius: BorderRadius.circular(19), border: Border.all(color: Colors.white.withValues(alpha: .9))),
+      decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [severityColor.withValues(alpha: .10), Colors.white.withValues(alpha: .72)]), borderRadius: BorderRadius.circular(19), border: Border.all(color: severityColor.withValues(alpha: .38)), boxShadow: [BoxShadow(color: severityColor.withValues(alpha: .06), blurRadius: 15, offset: const Offset(0, 5))]),
       child: Theme(data: Theme.of(context).copyWith(dividerColor: Colors.transparent), child: ExpansionTile(
         key: PageStorageKey('alert-${item['id']}'),
         tilePadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
         childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
         shape: const RoundedRectangleBorder(side: BorderSide.none),
         collapsedShape: const RoundedRectangleBorder(side: BorderSide.none),
+        leading: Container(width: 38, height: 38, decoration: BoxDecoration(color: severityColor.withValues(alpha: .14), borderRadius: BorderRadius.circular(12)), child: Icon(category == 'Prueba simulada' ? Icons.science_outlined : Icons.shield_outlined, color: severityColor, size: 21)),
         title: Text(signature, style: const TextStyle(color: _ink, fontWeight: FontWeight.w800, fontSize: 14)),
         subtitle: Padding(padding: const EdgeInsets.only(top: 8), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Wrap(spacing: 8, runSpacing: 5, crossAxisAlignment: WrapCrossAlignment.center, children: [
             Text(category, style: const TextStyle(color: _green, fontWeight: FontWeight.w700, fontSize: 11)),
-            Text('Severidad ${alertSeverity(severity)}', style: TextStyle(color: severityColor, fontWeight: FontWeight.w700, fontSize: 11)),
+            Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: severityColor.withValues(alpha: .13), borderRadius: BorderRadius.circular(20)), child: Text('Severidad ${alertSeverity(severity)}', style: TextStyle(color: severityColor, fontWeight: FontWeight.w800, fontSize: 11))),
           ]),
           const SizedBox(height: 5),
           Text('Dispositivo ${device.substring(0, 8)} · ${alertDate(timestamp)}', style: const TextStyle(color: _muted, fontSize: 12)),

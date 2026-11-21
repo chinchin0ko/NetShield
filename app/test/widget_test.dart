@@ -133,8 +133,8 @@ void main() {
     expect(vpn.lockOverride, isTrue);
     await tester.tap(find.text('Consumo'));
     await tester.pumpAndSettle();
-    expect(find.text('2.0 KB'), findsOneWidget);
-    expect(find.text('1.0 KB'), findsOneWidget);
+    expect(find.text('2.0 KB'), findsWidgets);
+    expect(find.text('1.0 KB'), findsWidgets);
     expect(find.text('Enviado 4.0 KB · Recibido 8.0 KB'), findsOneWidget);
     await tester.ensureVisible(find.text('Historial reciente'));
     expect(find.text('Enviado 1.0 KB · Recibido 2.0 KB · datos incompletos'), findsOneWidget);

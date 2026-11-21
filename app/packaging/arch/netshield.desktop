@@ -7,3 +7,4 @@ Icon=netshield
 Terminal=false
 Categories=Network;
 StartupNotify=true
+StartupWMClass=com.netshield.netshield_app
