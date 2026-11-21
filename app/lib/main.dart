@@ -423,7 +423,7 @@ class _ShieldHomeState extends State<ShieldHome> {
               padding: EdgeInsets.all(padding),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 900),
-                child: SizedBox(height: bounds.maxHeight - 2 * padding,
+                child: SizedBox(height: (bounds.maxHeight - 2 * padding).clamp(0.0, double.infinity),
                   child: GlassPanel(child: connectedPanel())),
               ),
             ));
@@ -492,38 +492,55 @@ class _ShieldHomeState extends State<ShieldHome> {
   ]);
 
   Widget connectedPanel() => LayoutBuilder(builder: (context, bounds) {
-    final horizontal = bounds.maxWidth < 600 ? 20.0 : 40.0;
-    final vertical = bounds.maxHeight < 500 ? 16.0 : 32.0;
+    final horizontal = bounds.maxWidth < 380 ? 12.0 : (bounds.maxWidth < 600 ? 20.0 : 40.0);
+    final vertical = bounds.maxHeight < 500 ? 12.0 : 28.0;
+    final navWidth = (bounds.maxWidth - horizontal * 2 - 14).clamp(0.0, double.infinity);
+    final columns = navWidth < 440 ? 2 : 4;
+    final itemWidth = ((navWidth - 6 * (columns - 1)) / columns).clamp(0.0, double.infinity);
+    final navigation = Container(
+      key: const ValueKey('dashboard-navigation'),
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(color: const Color(0xffdce6d5).withValues(alpha: .68), borderRadius: BorderRadius.circular(19), border: Border.all(color: Colors.white.withValues(alpha: .8))),
+      child: Wrap(spacing: 6, runSpacing: 6, children: [
+        SizedBox(width: itemWidth, child: navItem(0, Icons.home_outlined, 'Inicio')),
+        SizedBox(width: itemWidth, child: navItem(1, Icons.tune_rounded, 'Ajustes')),
+        SizedBox(width: itemWidth, child: navItem(2, Icons.data_usage_rounded, 'Consumo')),
+        SizedBox(width: itemWidth, child: navItem(3, Icons.shield_outlined, 'Alertas')),
+      ]),
+    );
+    final content = AnimatedSwitcher(duration: const Duration(milliseconds: 220), child: KeyedSubtree(key: ValueKey(page), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        switch (page) {
+          1 => SettingsPanel(android: Platform.isAndroid, pushActive: pushActive, connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
+          2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable, history: usageHistory, historyUnavailable: historyUnavailable),
+          3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, busy: alertsLoading || alertsChecking, error: alertsError, onRefresh: () => refreshAlerts(), onReview: reviewAlert, newAlerts: unseenAlertIds.length, onAcknowledge: () => setState(() => unseenAlertIds.clear())),
+          _ => homePanel(),
+        },
+        if (page != 0 && error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13))],
+      ],
+    )));
+    // At very short window heights, let the entire panel scroll so navigation
+    // and content remain reachable; otherwise keep navigation fixed.
+    if (bounds.maxHeight < 210) {
+      return SingleChildScrollView(key: ValueKey('dashboard-content-$page'), padding: EdgeInsets.fromLTRB(horizontal, vertical, horizontal, vertical), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [navigation, const SizedBox(height: 16), content]));
+    }
     return Padding(padding: EdgeInsets.fromLTRB(horizontal, vertical, horizontal, 0), child:
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Wrap(key: const ValueKey('dashboard-navigation'), spacing: 5, runSpacing: 5, children: [
-          navItem(0, Icons.home_outlined, 'Inicio'), navItem(1, Icons.tune_rounded, 'Ajustes'),
-          navItem(2, Icons.data_usage_rounded, 'Consumo'), navItem(3, Icons.shield_outlined, 'Alertas'),
-        ]),
-        const SizedBox(height: 24),
-        Expanded(child: SingleChildScrollView(
-          key: ValueKey('dashboard-content-$page'),
-          padding: EdgeInsets.only(bottom: vertical),
-          child: AnimatedSwitcher(duration: const Duration(milliseconds: 220), child: KeyedSubtree(key: ValueKey(page), child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              switch (page) {
-                1 => SettingsPanel(android: Platform.isAndroid, pushActive: pushActive, connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
-                2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable, history: usageHistory, historyUnavailable: historyUnavailable),
-                3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, busy: alertsLoading || alertsChecking, error: alertsError, onRefresh: () => refreshAlerts(), onReview: reviewAlert, newAlerts: unseenAlertIds.length, onAcknowledge: () => setState(() => unseenAlertIds.clear())),
-                _ => homePanel(),
-              },
-              if (page != 0 && error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13))],
-            ],
-          ))),
-        )),
+        navigation,
+        const SizedBox(height: 18),
+        Expanded(child: SingleChildScrollView(key: ValueKey('dashboard-content-$page'), padding: EdgeInsets.only(bottom: vertical), child: content)),
       ]));
   });
 
-  Widget navItem(int index, IconData icon, String label) => TextButton.icon(
-    onPressed: vpnLoading ? null : () => selectPage(index), icon: Icon(icon, size: 16), label: Text(index == 3 && unseenAlertIds.isNotEmpty ? '$label · ${unseenAlertIds.length}' : label),
-    style: TextButton.styleFrom(foregroundColor: page == index ? forest : const Color(0xff81937e), backgroundColor: page == index ? Colors.white.withValues(alpha: .75) : Colors.transparent, padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8), textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-  );
+  Widget navItem(int index, IconData icon, String label) => SizedBox(height: 48, child: TextButton(
+    onPressed: vpnLoading ? null : () => selectPage(index),
+    style: TextButton.styleFrom(foregroundColor: page == index ? forest : const Color(0xff61785e), backgroundColor: page == index ? Colors.white.withValues(alpha: .88) : Colors.transparent, minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 5), tapTargetSize: MaterialTapTargetSize.shrinkWrap, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+    child: FittedBox(fit: BoxFit.scaleDown, child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 19), const SizedBox(width: 8),
+      Text(index == 3 && unseenAlertIds.isNotEmpty ? '$label · ${unseenAlertIds.length}' : label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+    ])),
+  ));
 
   Widget homePanel() => Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
     const Text('TU ESPACIO PRIVADO', style: TextStyle(color: green, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.9)),

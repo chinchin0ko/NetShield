@@ -88,6 +88,8 @@ void main() {
     await tester.tap(find.text('Entrar a NetShield'));
     await tester.pumpAndSettle();
     expect(find.text('Conectar'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('Inicio')).dy, tester.getTopLeft(find.text('Ajustes')).dy);
+    expect(tester.getTopLeft(find.text('Consumo')).dy, greaterThan(tester.getTopLeft(find.text('Inicio')).dy));
     expect(tester.takeException(), isNull, reason: 'home layout');
     await tester.tap(find.text('Ajustes'));
     await tester.pumpAndSettle();
@@ -103,6 +105,29 @@ void main() {
     await tester.tap(find.text('ET MALWARE indicador detectado'));
     await tester.pumpAndSettle();
     expect(find.text('Detalles de la detección'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('Controls remain reachable in a very short window', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api)));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.ensureVisible(find.text('Entrar a NetShield'));
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    tester.view.physicalSize = const Size(320, 180);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Cerrar sesión'));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.text('Cerrar sesión')).bottom, lessThanOrEqualTo(180));
+    await tester.ensureVisible(find.text('Alertas'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alertas'));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
   testWidgets('Settings controls the lock and usage displays actual counters', (tester) async {
@@ -170,6 +195,7 @@ void main() {
     expect(find.text('Tu espacio.\nTu conexión.'), findsNothing);
     final navigation = find.byKey(const ValueKey('dashboard-navigation'));
     final origin = tester.getTopLeft(navigation);
+    expect(tester.getTopLeft(find.text('Inicio')).dy, tester.getTopLeft(find.text('Alertas')).dy);
     for (final label in ['Ajustes', 'Consumo', 'Alertas']) {
       await tester.tap(find.text(label));
       await tester.pumpAndSettle();
