@@ -95,16 +95,17 @@ class _UsageCard extends StatelessWidget {
 }
 
 class AlertsPanel extends StatelessWidget {
-  const AlertsPanel({super.key, required this.alerts, required this.loading, required this.error, required this.onTest, required this.onRefresh});
+  const AlertsPanel({super.key, required this.alerts, required this.monitoring, required this.loading, required this.error, required this.onTest, required this.onRefresh});
   final List<Map<String, dynamic>>? alerts;
   final bool loading;
+  final String monitoring;
   final String? error;
   final VoidCallback onTest, onRefresh;
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     const PanelHeading('CENTRO DE SEGURIDAD', 'Alertas y amenazas', 'Consulta las alertas asociadas a tu cuenta.'),
     const SizedBox(height: 20),
-    const SoftCard(child: Text('La detección real aún no está activa. Puedes generar una alerta simulada para probar el panel.', style: TextStyle(color: _muted, fontSize: 12, height: 1.4))),
+    SoftCard(child: Text(monitoring == 'experimental' ? 'Detección experimental activa con reglas limitadas. No detecta todas las amenazas.' : 'Detección no disponible. Puedes generar una alerta simulada para probar el panel.', style: const TextStyle(color: _muted, fontSize: 12, height: 1.4))),
     const SizedBox(height: 12),
     Wrap(spacing: 8, children: [FilledButton(onPressed: loading ? null : onTest, child: const Text('Generar alerta de prueba')), TextButton(onPressed: loading ? null : onRefresh, child: const Text('Actualizar'))]),
     if (loading) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),

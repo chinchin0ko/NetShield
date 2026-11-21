@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:math';
 import 'dart:convert';
 import 'api_client.dart';
@@ -36,6 +37,25 @@ class LinuxVpn {
     if (InternetAddress.tryParse(endpoint)?.type != InternetAddressType.IPv4) throw const ApiException('La dirección del servidor VPN es inválida.');
     final id = await _deviceId();
     await _switch(['enable', 'ns${id.substring(0, 12)}', endpoint]);
+  }
+
+  /// Check the VPN gateway through this device's interface. A timeout or
+  /// failed probe does not establish whether the physical network or server
+  /// is responsible, and says nothing about DNS or public Internet access.
+  Future<bool?> gatewayReachable() async {
+    final id = await _deviceId();
+    final name = 'ns${id.substring(0, 12)}';
+    try {
+      final result = await Process.run('ping', ['-4', '-I', name, '-c', '1', '-W', '3', '10.8.0.1'])
+          .timeout(const Duration(seconds: 5));
+      if (result.exitCode == 0) return true;
+      if (result.exitCode == 1) return false;
+      return null;
+    } on ProcessException {
+      return null;
+    } on TimeoutException {
+      return null;
+    }
   }
 
   Future<TrafficUsage?> trafficUsage() async {

@@ -7,6 +7,9 @@ import 'package:netshield_app/services/linux_vpn.dart';
 class FakeVpn extends LinuxVpn {
   FakeVpn(super.api);
   bool connected = false;
+  bool? gatewayResult = true;
+  @override
+  Future<bool?> gatewayReachable() async => gatewayResult;
   bool? lockOverride;
   String? connectedAccount;
   @override
@@ -30,8 +33,9 @@ class FakeApi extends ApiClient {
   final bool fail;
   bool revoked = false;
   bool testAlert = false;
+  bool manyAlerts = false;
   @override
-  Future<List<Map<String, dynamic>>> securityAlerts(String token) async => testAlert ? [{"device_id": "a" * 32, "signature": "PRUEBA: alerta simulada de NetShield", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}] : [];
+  Future<SecurityAlertFeed> securityAlerts(String token) async => SecurityAlertFeed(manyAlerts ? List.generate(20, (i) => {"device_id": "a" * 32, "signature": "Alerta $i", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}) : testAlert ? [{"device_id": "a" * 32, "signature": "PRUEBA: alerta simulada de NetShield", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}] : [], "not_active");
   @override
   Future<void> createTestAlert(String token) async { testAlert = true; }
   @override
@@ -83,10 +87,67 @@ void main() {
     expect(find.text('Enviado 4.0 KB · Recibido 8.0 KB'), findsOneWidget);
     await tester.tap(find.text('Alertas'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('La detección real aún no está activa'), findsOneWidget);
+    expect(find.textContaining('Detección no disponible'), findsOneWidget);
     await tester.tap(find.text('Generar alerta de prueba'));
     await tester.pumpAndSettle();
     expect(find.text('PRUEBA: alerta simulada de NetShield'), findsOneWidget);
+  });
+
+  testWidgets('Navigation stays fixed while only dashboard content scrolls', (tester) async {
+    tester.view.physicalSize = const Size(900, 650);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi()..manyAlerts = true;
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api)));
+    expect(find.text('Tu espacio.\nTu conexión.'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.ensureVisible(find.text('Entrar a NetShield'));
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    expect(find.text('Tu espacio.\nTu conexión.'), findsNothing);
+    final navigation = find.byKey(const ValueKey('dashboard-navigation'));
+    final origin = tester.getTopLeft(navigation);
+    for (final label in ['Ajustes', 'Consumo', 'Alertas']) {
+      await tester.tap(find.text(label));
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(navigation), origin);
+    }
+    await tester.drag(find.byKey(const ValueKey('dashboard-content-3')), const Offset(0, -800));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(navigation), origin);
+    expect(find.text('Alerta 19'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Active profile warns only after repeated gateway failures and recovers', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    final vpn = FakeVpn(api);
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Conectar'));
+    await tester.pumpAndSettle();
+    vpn.gatewayResult = false;
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump();
+    expect(find.text('VPN sin respuesta'), findsNothing);
+    await tester.pump(const Duration(seconds: 16));
+    await tester.pump();
+    expect(find.text('VPN sin respuesta'), findsOneWidget);
+    expect(vpn.connected, isTrue);
+    vpn.gatewayResult = true;
+    await tester.pump(const Duration(seconds: 16));
+    await tester.pump();
+    expect(find.text('Conectado'), findsOneWidget);
+    expect(vpn.connected, isTrue);
   });
 
   testWidgets('Restored traffic lock can be disabled before login', (tester) async {

@@ -4,10 +4,10 @@ Cliente de desarrollo en Flutter para Linux. Incluye inicio de sesión y conexi�
 
 ## Paquete de prueba para Arch Linux x86_64
 
-`dist/netshield-vpn-dev-0.1.0-7-x86_64.pkg.tar.zst` se genera localmente con `./scripts/package-arch.sh` después de `flutter build linux --release`. El equipo de compilación necesita Flutter y `makepkg`; quien instala el paquete no necesita Flutter ni el código fuente. El paquete declara sus dependencias de Arch y se instala con:
+`dist/netshield-vpn-dev-0.1.0-12-x86_64.pkg.tar.zst` se genera localmente con `./scripts/package-arch.sh` después de `flutter build linux --release`. El equipo de compilación necesita Flutter y `makepkg`; quien instala el paquete no necesita Flutter ni el código fuente. El paquete declara sus dependencias de Arch y se instala con:
 
 ```bash
-sudo pacman -U ./dist/netshield-vpn-dev-0.1.0-7-x86_64.pkg.tar.zst
+sudo pacman -U ./dist/netshield-vpn-dev-0.1.0-12-x86_64.pkg.tar.zst
 ```
 
 Abre **NetShield VPN** desde el menú o ejecuta `netshield-vpn`. Es necesario tener NetworkManager activo y un agente gráfico de polkit. Puedes crear una cuenta desde la aplicación. Para retirar el paquete, desconecta primero la VPN y desactiva el bloqueo desde la aplicación; después ejecuta `sudo pacman -R netshield-vpn-dev`. Esto no elimina las claves privadas o el identificador guardados en `~/.local/share/netshield/`.
@@ -45,9 +45,9 @@ flutter run -d linux
 
 Para otra API puede configurarse `--dart-define=NETSHIELD_API_URL=https://...`; HTTP solo se permite en localhost. El túnel SSH anterior queda disponible explícitamente para desarrollo mediante `--dart-define=NETSHIELD_API_URL=http://127.0.0.1:18000`. El token se conserva únicamente en memoria durante la sesión.
 
-En la pantalla principal, pulsa **Conectar**. La aplicación importa un perfil WireGuard en NetworkManager y comprueba que responda la puerta de enlace de la VPN. Pulsa **Desconectar** para eliminar el perfil local y recuperar la ruta anterior. Al cerrar sesión también se desconecta. Si cierras la ventana sin desconectar, el perfil puede continuar activo; al volver a iniciar sesión la aplicación consulta su estado en NetworkManager. Necesita `nmcli`, `ping` y autorización de NetworkManager.
+En la pantalla principal, pulsa **Conectar**. La aplicación importa un perfil WireGuard en NetworkManager y comprueba que responda la puerta de enlace de la VPN. Mientras el perfil está activo, la aplicación consulta periódicamente la puerta de enlace del túnel; tras dos respuestas fallidas avisa sin desconectarlo ni desactivar el bloqueo. Esto no verifica el DNS ni garantiza acceso a Internet. Pulsa **Desconectar** para eliminar el perfil local y recuperar la ruta anterior. Al cerrar sesión también se desconecta. Si cierras la ventana sin desconectar, el perfil puede continuar activo; al volver a iniciar sesión la aplicación consulta su estado en NetworkManager. Necesita `nmcli`, `ping` y autorización de NetworkManager.
 
-En **Ajustes** puedes desactivar o volver a activar el Kill Switch durante una conexión; desactivarlo permite la salida directa si el túnel falla. Al conectar de nuevo se activa por defecto. Si vienes de una conexión anterior a esta versión, desconecta y conecta una vez antes de volver a activarlo desde Ajustes. **Consumo** muestra bytes recibidos y enviados de la interfaz local actual, y los contadores disponibles en el servidor de tus dispositivos habilitados. Los contadores del servidor se reinician al reiniciarse WireGuard y no son un historial. **Alertas** aún no muestra eventos: falta asociarlos de forma segura a cada cuenta.
+En **Ajustes** puedes desactivar o volver a activar el Kill Switch durante una conexión; desactivarlo permite la salida directa si el túnel falla. Al conectar de nuevo se activa por defecto. Si vienes de una conexión anterior a esta versión, desconecta y conecta una vez antes de volver a activarlo desde Ajustes. **Consumo** muestra bytes recibidos y enviados de la interfaz local actual, y los contadores disponibles en el servidor de tus dispositivos habilitados. Los contadores del servidor se reinician al reiniciarse WireGuard y no son un historial. **Alertas** consulta los eventos atribuibles a la cuenta; el sensor es experimental, usa reglas limitadas y puede descartar eventos tardíos o ambiguos. Las alertas de prueba están identificadas como simuladas y no indican una infección.
 
 Las claves privadas se generan localmente con permisos 0600 en `~/.local/share/netshield/accounts/`, con una clave distinta por cada cuenta que usa el equipo. La API solo recibe la clave pública. Al conectar con una versión anterior del cliente, el peer de esa cuenta se actualiza con su nueva clave local. Los peers antiguos no migrados y las copias protegidas anteriores a la migración pueden conservar claves antiguas.
 

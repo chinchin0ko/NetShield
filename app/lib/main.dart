@@ -41,6 +41,11 @@ class _ShieldHomeState extends State<ShieldHome> {
   bool register = false, loading = false, hidePassword = true;
   bool vpnConnected = false, vpnLoading = false, trafficBlocked = false;
   bool connectionTransition = false;
+  bool gatewayChecking = false;
+  bool? gatewayHealthy;
+  int gatewayFailures = 0;
+  int vpnGeneration = 0;
+  Timer? gatewayCooldown;
   int page = 0;
   TrafficUsage? usage;
   List<VpnDeviceUsage>? serverUsage;
@@ -50,6 +55,7 @@ class _ShieldHomeState extends State<ShieldHome> {
   bool alertsLoading = false;
   List<Map<String, dynamic>>? alerts;
   String? alertsError;
+  String alertMonitoring = 'not_active';
   late final LinuxVpn vpn = widget.vpn ?? LinuxVpn(widget.api);
   Timer? monitor;
   String? error, notice, token, signedInAs;
@@ -75,7 +81,7 @@ class _ShieldHomeState extends State<ShieldHome> {
   }
 
   @override
-  void dispose() { monitor?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
+  void dispose() { monitor?.cancel(); gatewayCooldown?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
 
   Future<void> signIn() async {
     if (loading) return;
@@ -97,8 +103,9 @@ class _ShieldHomeState extends State<ShieldHome> {
           final active = await vpn.isConnected();
           final blocked = await vpn.isKillSwitchEnabled();
           if (mounted && !vpnLoading && (vpnConnected != active || trafficBlocked != blocked)) {
-            setState(() { vpnConnected = active; trafficBlocked = blocked; if (!active) usage = null; });
+            setState(() { if (vpnConnected != active) vpnGeneration++; vpnConnected = active; trafficBlocked = blocked; if (!active) { usage = null; gatewayHealthy = null; gatewayFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; } });
           }
+          if (mounted && active) await refreshGatewayHealth();
           if (mounted && page == 2) await refreshUsage();
         } catch (_) { /* Keep last known state if NetworkManager is unavailable. */ }
       });
@@ -137,13 +144,43 @@ class _ShieldHomeState extends State<ShieldHome> {
 
   void switchMode(bool value) => setState(() { register = value; error = null; notice = null; password.clear(); confirm.clear(); });
 
+  Future<void> refreshGatewayHealth({bool force = false}) async {
+    if (gatewayChecking || token == null || !vpnConnected) return;
+    if (!force && (gatewayCooldown?.isActive ?? false)) return;
+    final current = token;
+    final generation = vpnGeneration;
+    gatewayChecking = true;
+    gatewayCooldown?.cancel();
+    gatewayCooldown = Timer(const Duration(seconds: 15), () {});
+    try {
+      final reachable = await vpn.gatewayReachable();
+      if (!mounted || token != current || !vpnConnected || vpnGeneration != generation) return;
+      setState(() {
+        if (reachable == true) {
+          gatewayFailures = 0;
+          gatewayHealthy = true;
+        } else if (reachable == false) {
+          gatewayFailures++;
+          if (gatewayFailures >= 2) gatewayHealthy = false;
+        } else {
+          gatewayHealthy = null;
+          gatewayFailures = 0;
+        }
+      });
+    } catch (_) {
+      if (mounted && token == current && vpnConnected && vpnGeneration == generation) setState(() { gatewayHealthy = null; gatewayFailures = 0; });
+    } finally {
+      gatewayChecking = false;
+    }
+  }
+
   Future<void> refreshAlerts() async {
     if (alertsLoading || token == null) return;
     final current = token!;
     setState(() { alertsLoading = true; alertsError = null; });
     try {
       final result = await widget.api.securityAlerts(current);
-      if (mounted && token == current) setState(() => alerts = result);
+      if (mounted && token == current) setState(() { alerts = result.alerts; alertMonitoring = result.monitoring; });
     } catch (_) {
       if (mounted && token == current) setState(() { alerts = null; alertsError = 'No se pudieron consultar las alertas.'; });
     } finally {
@@ -158,7 +195,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     try {
       await widget.api.createTestAlert(current);
       final result = await widget.api.securityAlerts(current);
-      if (mounted && token == current) setState(() => alerts = result);
+      if (mounted && token == current) setState(() { alerts = result.alerts; alertMonitoring = result.monitoring; });
     } catch (_) {
       if (mounted && token == current) setState(() => alertsError = 'No se pudo crear la prueba. Necesitas un dispositivo VPN habilitado; espera si alcanzaste el límite.');
     } finally {
@@ -228,7 +265,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     setState(() { vpnLoading = true; connectionTransition = true; error = null; });
     try {
       if (vpnConnected || trafficBlocked) { await vpn.disconnect(); } else { await vpn.connect(token!, signedInAs!); }
-      if (mounted) setState(() { vpnConnected = !(vpnConnected || trafficBlocked); trafficBlocked = vpnConnected; if (!vpnConnected) usage = null; });
+      if (mounted) setState(() { vpnGeneration++; vpnConnected = !(vpnConnected || trafficBlocked); trafficBlocked = vpnConnected; gatewayHealthy = vpnConnected ? true : null; gatewayFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; if (!vpnConnected) usage = null; });
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
@@ -248,7 +285,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     try {
       if (vpnConnected || trafficBlocked) await vpn.disconnect();
       monitor?.cancel();
-      if (mounted) setState(() { token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; username.clear(); });
+      if (mounted) setState(() { vpnGeneration++; token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo desconectar la VPN.');
     } finally {
@@ -306,6 +343,17 @@ class _ShieldHomeState extends State<ShieldHome> {
       child: Stack(children: [
         const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: AtmospherePainter()))),
         SafeArea(child: LayoutBuilder(builder: (context, bounds) {
+          if (token != null) {
+            final padding = bounds.maxWidth < 600 ? 12.0 : 24.0;
+            return Center(child: Padding(
+              padding: EdgeInsets.all(padding),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: SizedBox(height: bounds.maxHeight - 2 * padding,
+                  child: GlassPanel(child: connectedPanel())),
+              ),
+            ));
+          }
           return Center(child: SingleChildScrollView(padding: const EdgeInsets.all(24), child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1050),
             child: GlassPanel(child: bounds.maxWidth < 760
@@ -369,20 +417,34 @@ class _ShieldHomeState extends State<ShieldHome> {
     const Center(child: Text('DISEÑADO PARA TU TRANQUILIDAD', style: TextStyle(color: Color(0xFF9aa896), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1.3))),
   ]);
 
-  Widget connectedPanel() => Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-    Wrap(spacing: 5, runSpacing: 5, children: [
-      navItem(0, Icons.home_outlined, 'Inicio'), navItem(1, Icons.tune_rounded, 'Ajustes'),
-      navItem(2, Icons.data_usage_rounded, 'Consumo'), navItem(3, Icons.shield_outlined, 'Alertas'),
-    ]),
-    const SizedBox(height: 24),
-    AnimatedSwitcher(duration: const Duration(milliseconds: 220), child: KeyedSubtree(key: ValueKey(page), child: switch (page) {
-      1 => SettingsPanel(connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
-      2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable),
-      3 => AlertsPanel(alerts: alerts, loading: alertsLoading, error: alertsError, onTest: createTestAlert, onRefresh: refreshAlerts),
-      _ => homePanel(),
-    })),
-    if (page != 0 && error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13))],
-  ]);
+  Widget connectedPanel() => LayoutBuilder(builder: (context, bounds) {
+    final horizontal = bounds.maxWidth < 600 ? 20.0 : 40.0;
+    final vertical = bounds.maxHeight < 500 ? 16.0 : 32.0;
+    return Padding(padding: EdgeInsets.fromLTRB(horizontal, vertical, horizontal, 0), child:
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Wrap(key: const ValueKey('dashboard-navigation'), spacing: 5, runSpacing: 5, children: [
+          navItem(0, Icons.home_outlined, 'Inicio'), navItem(1, Icons.tune_rounded, 'Ajustes'),
+          navItem(2, Icons.data_usage_rounded, 'Consumo'), navItem(3, Icons.shield_outlined, 'Alertas'),
+        ]),
+        const SizedBox(height: 24),
+        Expanded(child: SingleChildScrollView(
+          key: ValueKey('dashboard-content-$page'),
+          padding: EdgeInsets.only(bottom: vertical),
+          child: AnimatedSwitcher(duration: const Duration(milliseconds: 220), child: KeyedSubtree(key: ValueKey(page), child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              switch (page) {
+                1 => SettingsPanel(connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
+                2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable),
+                3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, error: alertsError, onTest: createTestAlert, onRefresh: refreshAlerts),
+                _ => homePanel(),
+              },
+              if (page != 0 && error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13))],
+            ],
+          ))),
+        )),
+      ]));
+  });
 
   Widget navItem(int index, IconData icon, String label) => TextButton.icon(
     onPressed: vpnLoading ? null : () => selectPage(index), icon: Icon(icon, size: 16), label: Text(label),
@@ -396,9 +458,9 @@ class _ShieldHomeState extends State<ShieldHome> {
     const SizedBox(height: 36),
     Center(child: AnimatedContainer(duration: const Duration(milliseconds: 350), width: 156, height: 156, decoration: BoxDecoration(shape: BoxShape.circle, gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFeef1e5), Color(0xFFbdceb1), Color(0xFF90a98c)]), border: Border.all(color: Colors.white.withValues(alpha: .8), width: 2), boxShadow: [BoxShadow(color: deep.withValues(alpha: vpnConnected ? .27 : .15), blurRadius: vpnConnected ? 32 : 22, offset: const Offset(0, 10))]), child: AnimatedSwitcher(duration: const Duration(milliseconds: 250), child: connectionTransition ? const Center(key: ValueKey('loading'), child: SizedBox(width: 46, height: 46, child: CircularProgressIndicator(color: forest, strokeWidth: 3))) : const Icon(Icons.power_settings_new_rounded, key: ValueKey('power'), size: 61, color: forest)))),
     const SizedBox(height: 25),
-    Center(child: Text(vpnConnected ? 'Conectado' : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
+    Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : 'Conectado') : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
     const SizedBox(height: 8),
-    Center(child: Text(error ?? (vpnConnected ? (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.') : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar el túnel de desarrollo.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
+    Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null ? 'Comprobando la conexión con el servidor VPN.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar el túnel de desarrollo.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
     const SizedBox(height: 30),
     SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
     const SizedBox(height: 12), Center(child: TextButton.icon(onPressed: vpnLoading ? null : manageDevices, icon: const Icon(Icons.devices_rounded, size: 17), label: const Text('Administrar dispositivos'), style: TextButton.styleFrom(foregroundColor: forest))),

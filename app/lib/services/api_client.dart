@@ -15,6 +15,12 @@ class VpnDeviceUsage {
   final int? downloadBytes;
 }
 
+class SecurityAlertFeed {
+  const SecurityAlertFeed(this.alerts, this.monitoring);
+  final List<Map<String, dynamic>> alerts;
+  final String monitoring;
+}
+
 class ApiClient {
   ApiClient({String? baseUrl, DevTunnel? tunnel})
     : baseUrl = Uri.parse(baseUrl ?? const String.fromEnvironment(
@@ -90,9 +96,9 @@ class ApiClient {
     return devices;
   }
 
-  Future<List<Map<String, dynamic>>> securityAlerts(String token) async {
+  Future<SecurityAlertFeed> securityAlerts(String token) async {
     final result = await _authorized(token, 'GET', '/security/alerts');
-    if (result is! Map || result['alerts'] is! List || result['monitoring'] != 'not_active') {
+    if (result is! Map || result['alerts'] is! List || !['not_active', 'experimental'].contains(result['monitoring'])) {
       throw const ApiException('No se pudieron consultar las alertas.');
     }
     final alerts = <Map<String, dynamic>>[];
@@ -102,7 +108,7 @@ class ApiClient {
       }
       alerts.add(Map<String, dynamic>.from(item));
     }
-    return alerts;
+    return SecurityAlertFeed(alerts, result['monitoring'] as String);
   }
 
   Future<void> createTestAlert(String token) async {
