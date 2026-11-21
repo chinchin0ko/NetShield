@@ -217,21 +217,6 @@ class _ShieldHomeState extends State<ShieldHome> {
     }
   }
 
-  Future<void> createTestAlert() async {
-    if (alertsLoading || token == null) return;
-    final current = token!;
-    setState(() { alertsLoading = true; alertsError = null; });
-    try {
-      await widget.api.createTestAlert(current);
-      final result = await widget.api.securityAlerts(current);
-      if (mounted && token == current) setState(() { alerts = result.alerts; alertMonitoring = result.monitoring; });
-    } catch (_) {
-      if (mounted && token == current) setState(() => alertsError = 'No se pudo crear la prueba. Necesitas un dispositivo VPN habilitado; espera si alcanzaste el límite.');
-    } finally {
-      if (mounted && token == current) setState(() => alertsLoading = false);
-    }
-  }
-
   Future<void> refreshUsage() async {
     if (usageLoading || token == null) return;
     final currentToken = token!;
@@ -471,7 +456,7 @@ class _ShieldHomeState extends State<ShieldHome> {
               switch (page) {
                 1 => SettingsPanel(connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
                 2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable, history: usageHistory, historyUnavailable: historyUnavailable),
-                3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, error: alertsError, onTest: createTestAlert, onRefresh: refreshAlerts, onReview: reviewAlert),
+                3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, error: alertsError, onRefresh: refreshAlerts, onReview: reviewAlert),
                 _ => homePanel(),
               },
               if (page != 0 && error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13))],
@@ -495,7 +480,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     const SizedBox(height: 25),
     Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : (dnsHealthy == false ? 'DNS sin respuesta' : (internetHealthy == false ? 'Prueba de Internet sin respuesta' : 'Conectado'))) : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
     const SizedBox(height: 8),
-    Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null ? 'Comprobando la conexión con el servidor VPN.' : (dnsHealthy == false ? 'El DNS de la VPN no respondió a la prueba.' : (internetHealthy == false ? 'La prueba de Internet no respondió; algunas redes bloquean este tipo de comprobación.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar el túnel de desarrollo.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
+    Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null ? 'Comprobando la conexión con el servidor VPN.' : (dnsHealthy == false ? 'El DNS de la VPN no respondió a la prueba.' : (internetHealthy == false ? 'La prueba de Internet no respondió; algunas redes bloquean este tipo de comprobación.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar tu VPN.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
     const SizedBox(height: 30),
     SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
     const SizedBox(height: 12), Center(child: TextButton.icon(onPressed: vpnLoading ? null : manageDevices, icon: const Icon(Icons.devices_rounded, size: 17), label: const Text('Administrar dispositivos'), style: TextButton.styleFrom(foregroundColor: forest))),

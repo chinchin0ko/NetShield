@@ -36,13 +36,11 @@ class FakeApi extends ApiClient {
   FakeApi({this.fail = false});
   final bool fail;
   bool revoked = false;
-  bool testAlert = false;
+  bool showAlert = false;
   String reviewStatus = 'new';
   bool manyAlerts = false;
   @override
-  Future<SecurityAlertFeed> securityAlerts(String token) async => SecurityAlertFeed(manyAlerts ? List.generate(20, (i) => {"id": i + 1, "review_status": "new", "device_id": "a" * 32, "signature": "Alerta $i", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}) : testAlert ? [{"id": 1, "review_status": reviewStatus, "device_id": "a" * 32, "signature": "PRUEBA: alerta simulada de NetShield", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}] : [], "not_active");
-  @override
-  Future<void> createTestAlert(String token) async { testAlert = true; }
+  Future<SecurityAlertFeed> securityAlerts(String token) async => SecurityAlertFeed(manyAlerts ? List.generate(20, (i) => {"id": i + 1, "review_status": "new", "device_id": "a" * 32, "signature": "Alerta $i", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}) : showAlert ? [{"id": 1, "review_status": reviewStatus, "device_id": "a" * 32, "signature": "ET MALWARE indicador detectado", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}] : [], "not_active");
   @override
   Future<void> reviewAlert(String token, int id, String status) async { reviewStatus = status; }
   @override
@@ -68,7 +66,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    final api = FakeApi();
+    final api = FakeApi()..showAlert = true;
     final vpn = FakeVpn(api);
     await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
     await tester.enterText(find.byType(TextField).at(0), 'demo');
@@ -99,9 +97,8 @@ void main() {
     await tester.tap(find.text('Alertas'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Sensor no disponible'), findsOneWidget);
-    await tester.tap(find.text('Generar alerta de prueba'));
-    await tester.pumpAndSettle();
-    expect(find.text('PRUEBA: alerta simulada de NetShield'), findsOneWidget);
+    expect(find.text('Generar alerta de prueba'), findsNothing);
+    expect(find.text('ET MALWARE indicador detectado'), findsOneWidget);
     await tester.ensureVisible(find.text('Posible falso positivo'));
     await tester.tap(find.text('Posible falso positivo'));
     await tester.pumpAndSettle();

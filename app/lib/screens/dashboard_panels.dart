@@ -108,12 +108,12 @@ class _UsageCard extends StatelessWidget {
 }
 
 class AlertsPanel extends StatelessWidget {
-  const AlertsPanel({super.key, required this.alerts, required this.monitoring, required this.loading, required this.error, required this.onTest, required this.onRefresh, required this.onReview});
+  const AlertsPanel({super.key, required this.alerts, required this.monitoring, required this.loading, required this.error, required this.onRefresh, required this.onReview});
   final List<Map<String, dynamic>>? alerts;
   final bool loading;
   final String monitoring;
   final String? error;
-  final VoidCallback onTest, onRefresh;
+  final VoidCallback onRefresh;
   final void Function(int, String) onReview;
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -121,7 +121,7 @@ class AlertsPanel extends StatelessWidget {
     const SizedBox(height: 20),
     SoftCard(child: Text(monitoring == 'experimental' ? 'Sensor comunicado recientemente. Las alertas son indicios y requieren revisión.' : 'Sensor no disponible. Las alertas guardadas siguen visibles.', style: const TextStyle(color: _muted, fontSize: 12, height: 1.4))),
     const SizedBox(height: 12),
-    Wrap(spacing: 8, children: [FilledButton(onPressed: loading ? null : onTest, child: const Text('Generar alerta de prueba')), TextButton(onPressed: loading ? null : onRefresh, child: const Text('Actualizar'))]),
+    TextButton(onPressed: loading ? null : onRefresh, child: const Text('Actualizar')),
     if (loading) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
     if (error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text(error!, style: const TextStyle(color: _muted, fontSize: 12))),
     if (!loading && alerts != null && alerts!.isEmpty) const SoftCard(child: Text('Aún no hay alertas guardadas.', style: TextStyle(color: _muted))),

@@ -139,10 +139,6 @@ class ApiClient {
     await _authorized(token, 'POST', '/security/alerts/$id/review', payload: {'status': status});
   }
 
-  Future<void> createTestAlert(String token) async {
-    await _authorized(token, 'POST', '/security/alerts/test');
-  }
-
   Future<void> revokeVpnDevice(String token, String deviceId) async {
     if (!RegExp(r'^[0-9a-f]{32}$').hasMatch(deviceId)) throw const ApiException('El dispositivo es inválido.');
     await _authorized(token, 'POST', '/vpn/devices/$deviceId/revoke');

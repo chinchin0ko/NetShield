@@ -30,7 +30,7 @@ La API de desarrollo se accede por HTTPS en `https://api.netshield.lat`. Los cli
 
 `POST /security/alerts/{id}/review` acepta JSON `{"status":"reviewed"}`, `{"status":"false_positive"}` o `{"status":"new"}` y responde `204` si la operación tuvo éxito. Cada cambio real queda registrado con su fecha. Un `404` indica que el identificador no existe o no pertenece a la cuenta; `422` indica un cuerpo inválido; `401`, una sesión inválida; `503`, indisponibilidad. Tras guardar, el cliente puede actualizar la lista con `GET /security/alerts`.
 
-`POST /security/alerts/test` es opcional y exclusivo de entornos de desarrollo donde se habilite expresamente. Sus alertas están marcadas como prueba y no representan amenazas reales; un cliente debe tolerar `404` cuando el servidor no lo habilite.
+La ruta `POST /security/alerts/test` está excluida del proxy público y no forma parte de la interfaz para usuarios. En un entorno local de desarrollo puede habilitarse expresamente; sus alertas están marcadas como simuladas y no representan amenazas reales.
 
 ## Entrega y eventos retenidos
 
