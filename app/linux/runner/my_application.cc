@@ -37,6 +37,7 @@ static gboolean tray_available() {
 
 static void restore_window(MyApplication* self) {
   gtk_window_set_skip_taskbar_hint(self->window, FALSE);
+  gtk_window_deiconify(self->window);
   gtk_window_present(self->window);
   app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_PASSIVE);
 }
@@ -76,7 +77,7 @@ static gboolean on_window_close(GtkWidget* window, GdkEvent*, gpointer data) {
   MyApplication* self = MY_APPLICATION(data);
   if (tray_available()) {
     app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_ACTIVE);
-    gtk_window_set_skip_taskbar_hint(GTK_WINDOW(window), TRUE);
+    // Keep the taskbar entry so the window remains recoverable in Wayland.
   }
   gtk_window_iconify(GTK_WINDOW(window));
   return TRUE;
