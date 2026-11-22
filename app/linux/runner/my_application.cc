@@ -11,13 +11,18 @@ struct _MyApplication {
   AppIndicator* indicator;
   FlMethodChannel* tray_channel;
   GtkWindow* window;
+  bool first_frame_received;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
-  gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
+  // Restoring the render surface can emit first-frame again. Only show on startup.
+  if (!self->first_frame_received) {
+    self->first_frame_received = true;
+    gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
+  }
 }
 
 // Keep the window recoverable on desktops without a system tray.
@@ -37,17 +42,14 @@ static gboolean tray_available() {
 
 static void restore_window(MyApplication* self) {
   gtk_window_set_skip_taskbar_hint(self->window, FALSE);
+  gtk_widget_show(GTK_WIDGET(self->window));
   gtk_window_deiconify(self->window);
   gtk_window_present(self->window);
-  app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_PASSIVE);
+  gtk_widget_queue_draw(GTK_WIDGET(self->window));
 }
 
 static void show_window(GtkMenuItem*, gpointer data) {
   restore_window(MY_APPLICATION(data));
-}
-
-static void quit_application(GtkMenuItem*, gpointer data) {
-  g_application_quit(G_APPLICATION(data));
 }
 
 static void quit_all_finished(GObject* source, GAsyncResult* result, gpointer data) {
@@ -73,24 +75,20 @@ static void quit_all(GtkMenuItem*, gpointer data) {
                                   nullptr, quit_all_finished, self);
 }
 
-static gboolean on_window_close(GtkWidget* window, GdkEvent*, gpointer data) {
+static void hide_window(GtkMenuItem*, gpointer data) {
   MyApplication* self = MY_APPLICATION(data);
   if (tray_available()) {
-    app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_ACTIVE);
-    // Keep the taskbar entry so the window remains recoverable in Wayland.
+    // Keep the GtkWindow, FlView and Dart isolate alive: login, monitoring and
+    // VPN state must survive closing the window. Never call quit or destroy.
+    gtk_widget_hide(GTK_WIDGET(self->window));
+  } else {
+    gtk_window_iconify(self->window);
   }
-  gtk_window_iconify(GTK_WINDOW(window));
-  return TRUE;
 }
 
-static gboolean on_window_state(GtkWidget*, GdkEventWindowState* event, gpointer data) {
-  MyApplication* self = MY_APPLICATION(data);
-  if ((event->changed_mask & GDK_WINDOW_STATE_ICONIFIED) &&
-      !(event->new_window_state & GDK_WINDOW_STATE_ICONIFIED)) {
-    gtk_window_set_skip_taskbar_hint(self->window, FALSE);
-    app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_PASSIVE);
-  }
-  return FALSE;
+static gboolean on_window_close(GtkWidget*, GdkEvent*, gpointer data) {
+  hide_window(nullptr, data);
+  return TRUE;
 }
 
 static void setup_indicator(MyApplication* self) {
@@ -100,18 +98,18 @@ static void setup_indicator(MyApplication* self) {
   G_GNUC_END_IGNORE_DEPRECATIONS
   GtkWidget* menu = gtk_menu_new();
   GtkWidget* open = gtk_menu_item_new_with_label("Abrir NetShield");
-  GtkWidget* quit = gtk_menu_item_new_with_label("Salir de la aplicación (mantener VPN)");
+  GtkWidget* hide = gtk_menu_item_new_with_label("Ocultar ventana (mantener VPN)");
   GtkWidget* quit_everything = gtk_menu_item_new_with_label("Desconectar VPN y salir");
   g_signal_connect(open, "activate", G_CALLBACK(show_window), self);
-  g_signal_connect(quit, "activate", G_CALLBACK(quit_application), self);
+  g_signal_connect(hide, "activate", G_CALLBACK(hide_window), self);
   g_signal_connect(quit_everything, "activate", G_CALLBACK(quit_all), self);
   gtk_menu_shell_append(GTK_MENU_SHELL(menu), open);
-  gtk_menu_shell_append(GTK_MENU_SHELL(menu), quit);
+  gtk_menu_shell_append(GTK_MENU_SHELL(menu), hide);
   gtk_menu_shell_append(GTK_MENU_SHELL(menu), quit_everything);
   gtk_widget_show_all(menu);
   app_indicator_set_menu(self->indicator, GTK_MENU(menu));
   app_indicator_set_title(self->indicator, "NetShield VPN");
-  app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_PASSIVE);
+  app_indicator_set_status(self->indicator, APP_INDICATOR_STATUS_ACTIVE);
 }
 
 // Implements GApplication::activate.
@@ -141,7 +139,6 @@ static void my_application_activate(GApplication* application) {
   self->window = window;
   setup_indicator(self);
   g_signal_connect(window, "delete-event", G_CALLBACK(on_window_close), self);
-  g_signal_connect(window, "window-state-event", G_CALLBACK(on_window_state), self);
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
