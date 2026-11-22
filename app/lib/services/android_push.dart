@@ -7,10 +7,36 @@ import 'api_client.dart';
 import 'linux_vpn.dart';
 
 /// Firebase is optional until a project configuration is supplied at build time.
+///
+/// Runs in a background isolate when a push arrives with the app closed or
+/// in the background. It must stay top-level and reachable in release builds,
+/// otherwise tree-shaking removes it. FCM already displays the notification
+/// payload itself; this best-effort call shows the same local alert when the
+/// payload is data-only.
+@pragma('vm:entry-point')
+Future<void> _onBackgroundPush(RemoteMessage message) async {
+  try {
+    await const MethodChannel('netshield/android_vpn')
+        .invokeMethod<void>('notification');
+  } catch (_) {
+    // The native channel is only registered on the main engine, so this can
+    // fail in the background isolate; the system-displayed FCM notification
+    // still reaches the user.
+  }
+}
+
 class AndroidPush {
   AndroidPush(this.api, this.vpn);
   final ApiClient api;
   final LinuxVpn vpn;
+
+  /// Register as early as possible (from main, before runApp) so pushes are
+  /// handled even before the first login restores the session.
+  static void registerBackgroundHandler() {
+    if (Platform.isAndroid) {
+      FirebaseMessaging.onBackgroundMessage(_onBackgroundPush);
+    }
+  }
   StreamSubscription<String>? _refresh;
   StreamSubscription<RemoteMessage>? _foreground;
   String? _deviceId;

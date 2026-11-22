@@ -459,4 +459,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.revoked, isTrue);
   });
+
+  testWidgets('Android uses bottom navigation with animated section changes', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api), notifier: FakeNotifier(), androidLayout: true));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.ensureVisible(find.text('Entrar a NetShield'));
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('android-navigation')), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    // Bottom navigation sits below the home content.
+    expect(tester.getTopLeft(find.byType(NavigationBar)).dy, greaterThan(tester.getTopLeft(find.text('Conectar')).dy));
+    expect(find.byKey(const ValueKey('dashboard-navigation')), findsNothing);
+    await tester.tap(find.text('Ajustes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Configuración'), findsOneWidget);
+    await tester.tap(find.descendant(of: find.byKey(const ValueKey('android-navigation')), matching: find.text('Consumo')));
+    await tester.pumpAndSettle();
+    expect(find.text('Consumo por día'), findsOneWidget);
+    await tester.tap(find.text('Alertas'));
+    await tester.pumpAndSettle();
+    expect(find.text('Alertas y amenazas'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

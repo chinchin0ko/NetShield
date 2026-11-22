@@ -25,7 +25,7 @@ class FcmSender:
         response = self.session.post(self.url, json={'message': {
             'token': token,
             'notification': {'title': 'NetShield VPN', 'body': 'Tienes una alerta de seguridad nueva. Abre NetShield para revisarla.'},
-            'android': {'priority': 'normal', 'notification': {'channel_id': 'security_alerts'}},
+            'android': {'priority': 'high', 'notification': {'channel_id': 'security_alerts'}},
         }}, timeout=10)
         if response.ok:
             return 'sent'

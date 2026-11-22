@@ -16,32 +16,43 @@ const green = Color(0xFF588157);
 const forest = Color(0xFF3a5a40);
 const deep = Color(0xFF344e41);
 
-void main() => runApp(const NetShieldApp());
+void main() {
+  // The background handler registers a MethodChannel, which needs the
+  // services binding initialized before runApp.
+  WidgetsFlutterBinding.ensureInitialized();
+  AndroidPush.registerBackgroundHandler();
+  runApp(const NetShieldApp());
+}
 
 class NetShieldApp extends StatelessWidget {
-  const NetShieldApp({super.key, this.api, this.vpn, this.notifier});
+  const NetShieldApp({super.key, this.api, this.vpn, this.notifier, this.androidLayout});
   final ApiClient? api;
   final LinuxVpn? vpn;
   final AlertNotifier? notifier;
+  // Lets tests force the Android layout; in the real app it follows the OS.
+  final bool? androidLayout;
   @override
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
     title: 'NetShield VPN',
-    theme: ThemeData(useMaterial3: true, fontFamily: 'sans-serif', colorScheme: ColorScheme.fromSeed(seedColor: green)),
-    home: ShieldHome(api: api ?? ApiClient(), vpn: vpn, notifier: notifier),
+    theme: ThemeData(useMaterial3: true, fontFamily: 'sans-serif', colorScheme: ColorScheme.fromSeed(seedColor: green),
+      navigationBarTheme: const NavigationBarThemeData(backgroundColor: Colors.white, indicatorColor: Color(0xFFDCE8D5), elevation: 2),
+      pageTransitionsTheme: const PageTransitionsTheme(builders: {TargetPlatform.android: FadeUpwardsPageTransitionsBuilder()})),
+    home: ShieldHome(api: api ?? ApiClient(), vpn: vpn, notifier: notifier, androidLayout: androidLayout),
   );
 }
 
 class ShieldHome extends StatefulWidget {
-  const ShieldHome({super.key, required this.api, this.vpn, this.notifier});
+  const ShieldHome({super.key, required this.api, this.vpn, this.notifier, this.androidLayout});
   final ApiClient api;
   final LinuxVpn? vpn;
   final AlertNotifier? notifier;
+  final bool? androidLayout;
   @override
   State<ShieldHome> createState() => _ShieldHomeState();
 }
 
-class _ShieldHomeState extends State<ShieldHome> {
+class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   final username = TextEditingController();
   final password = TextEditingController();
   final confirm = TextEditingController();
@@ -83,6 +94,7 @@ class _ShieldHomeState extends State<ShieldHome> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (Platform.isLinux) {
       const MethodChannel('netshield/linux_tray').setMethodCallHandler((call) async {
         if (call.method != 'disconnectAndQuit') throw MissingPluginException();
@@ -103,12 +115,29 @@ class _ShieldHomeState extends State<ShieldHome> {
         }
       });
     }
+    if (vpn is AndroidVpn) unawaited(restoreAndroidSession());
     vpn.isKillSwitchEnabled().then((blocked) {
       if (mounted) setState(() => trafficBlocked = blocked);
     }).catchError((_) {});
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (Platform.isAndroid && state == AppLifecycleState.resumed) {
+      unawaited(refreshAndroidProtection());
+    }
+  }
+
+  Future<void> refreshAndroidProtection() async {
+    try {
+      final active = await vpn.isConnected();
+      final blocked = await vpn.isKillSwitchEnabled();
+      if (mounted && !vpnLoading) setState(() { vpnConnected = active; trafficBlocked = blocked; });
+    } catch (_) { /* Keep the last confirmed protection state. */ }
+  }
+
   Future<void> unlockBeforeLogin() async {
+    if (vpn is AndroidVpn) { await (vpn as AndroidVpn).openVpnSettings(); return; }
     setState(() { loading = true; error = null; });
     try {
       await vpn.disconnect();
@@ -121,21 +150,22 @@ class _ShieldHomeState extends State<ShieldHome> {
   }
 
   @override
-  void dispose() { if (Platform.isLinux) { const MethodChannel('netshield/linux_tray').setMethodCallHandler(null); } push.dispose(); monitor?.cancel(); alertsTimer?.cancel(); gatewayCooldown?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
+  void dispose() { WidgetsBinding.instance.removeObserver(this); if (Platform.isLinux) { const MethodChannel('netshield/linux_tray').setMethodCallHandler(null); } push.dispose(); monitor?.cancel(); alertsTimer?.cancel(); gatewayCooldown?.cancel(); widget.api.close(); username.dispose(); password.dispose(); confirm.dispose(); super.dispose(); }
 
-  Future<void> signIn() async {
-    if (loading) return;
-    if (username.text.trim().isEmpty || password.text.isEmpty) {
-      setState(() => error = 'Introduce tu usuario y contraseña.');
-      return;
-    }
-    setState(() { loading = true; error = null; });
+  Future<void> restoreAndroidSession() async {
+    setState(() => loading = true);
     try {
-      final result = await widget.api.login(username.text.trim(), password.text);
+      final session = await (vpn as AndroidVpn).restoredSession();
+      if (session != null && mounted) await acceptSession(session['token']!, session['account']!);
+    } catch (_) { /* A locked or invalid keystore falls back to explicit login. */ }
+    finally { if (mounted) setState(() => loading = false); }
+  }
+
+  Future<void> acceptSession(String result, String account) async {
       final active = await vpn.isConnected();
       final blocked = await vpn.isKillSwitchEnabled();
       if (!mounted) return;
-      setState(() { token = result; signedInAs = username.text.trim(); vpnConnected = active; trafficBlocked = blocked; password.clear(); });
+      setState(() { token = result; signedInAs = account; vpnConnected = active; trafficBlocked = blocked; password.clear(); });
       if (Platform.isAndroid) {
         pushStarting = push.start(result).then((active) {
           if (mounted && token == result) setState(() => pushActive = active);
@@ -158,6 +188,19 @@ class _ShieldHomeState extends State<ShieldHome> {
           if (mounted && page == 2) await refreshUsage();
         } catch (_) { /* Keep last known state if NetworkManager is unavailable. */ }
       });
+  }
+
+  Future<void> signIn() async {
+    if (loading) return;
+    if (username.text.trim().isEmpty || password.text.isEmpty) {
+      setState(() => error = 'Introduce tu usuario y contraseña.');
+      return;
+    }
+    setState(() { loading = true; error = null; });
+    try {
+      final result = await widget.api.login(username.text.trim(), password.text);
+      if (vpn is AndroidVpn) await (vpn as AndroidVpn).saveSession(username.text.trim(), result);
+      await acceptSession(result, username.text.trim());
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
@@ -325,8 +368,134 @@ class _ShieldHomeState extends State<ShieldHome> {
     if (value == 3) refreshAlerts();
   }
 
+  /// The four dashboard sections, shared by the desktop layout and the
+  /// Android layout below. Only the navigation around them changes.
+  Widget _dashboardPage() => switch (page) {
+    1 => SettingsPanel(android: Platform.isAndroid, pushActive: pushActive, connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
+    2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable, history: usageHistory, historyUnavailable: historyUnavailable),
+    3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, busy: alertsLoading || alertsChecking, error: alertsError, onRefresh: () => refreshAlerts(), onReview: reviewAlert, newAlerts: unseenAlertIds.length, onAcknowledge: () => setState(() => unseenAlertIds.clear())),
+    _ => homePanel(),
+  };
+
+  /// Login header for Android: standard Material login pattern — a small
+  /// centered brand mark, one short tagline and the trust pills — instead
+  /// of the large desktop hero panel, so the form is visible at a glance.
+  Widget _androidAuthHeader() => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(24),
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFFE5EBD7), Color(0xFFA3B99A), Color(0xFF789A7A)],
+      ),
+    ),
+    child: Column(children: [
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        shieldMark(40),
+        const SizedBox(width: 10),
+        const Text('NETSHIELD', style: TextStyle(color: deep, fontWeight: FontWeight.w900, fontSize: 15, letterSpacing: 2.2)),
+        const SizedBox(width: 8),
+        const Text('VPN', style: TextStyle(color: forest, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 2)),
+      ]),
+      const SizedBox(height: 12),
+      const Text('Una forma más tranquila de navegar.', textAlign: TextAlign.center, style: TextStyle(color: forest, fontSize: 14, height: 1.4)),
+      const SizedBox(height: 12),
+      Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [pill(Icons.lock_outline_rounded, 'Túnel seguro'), pill(Icons.shield_outlined, 'Privacidad')]),
+    ]),
+  );
+
+  /// Android layout: Material 3 bottom navigation (NavigationBar) with a
+  /// slide + fade transition between sections, instead of the desktop
+  /// top navigation strip. All logic (login, VPN, alerts, usage) is
+  /// untouched; only the presentation changes, and only on Android.
+  Widget _androidScaffold() {
+    if (token == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF2F4EE),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(children: [
+              _androidAuthHeader(),
+              const SizedBox(height: 12),
+              GlassPanel(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28), child: authPanel())),
+            ]),
+          ),
+        ),
+      );
+    }
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2F4EE),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFF2F4EE),
+        surfaceTintColor: Colors.transparent,
+        title: Row(children: [shieldMark(30), const SizedBox(width: 10), const Text('NETSHIELD', style: TextStyle(color: deep, fontWeight: FontWeight.w900, fontSize: 15, letterSpacing: 2.0))]),
+        actions: [
+          IconButton(
+            tooltip: 'Cerrar sesión',
+            onPressed: vpnLoading ? null : signOut,
+            icon: const Icon(Icons.logout_rounded, color: forest),
+          ),
+        ],
+      ),
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 250),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        transitionBuilder: (child, animation) {
+          final offset = Tween<Offset>(begin: const Offset(0.06, 0), end: Offset.zero)
+              .animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
+          return FadeTransition(opacity: animation, child: SlideTransition(position: offset, child: child));
+        },
+        child: KeyedSubtree(
+          key: ValueKey(page),
+          child: SingleChildScrollView(
+            key: ValueKey('android-content-$page'),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _dashboardPage(),
+                if (page != 0 && error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13)),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+      bottomNavigationBar: NavigationBar(
+        key: const ValueKey('android-navigation'),
+        selectedIndex: page,
+        onDestinationSelected: vpnLoading ? null : selectPage,
+        destinations: [
+          const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Inicio'),
+          const NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune_rounded), label: 'Ajustes'),
+          const NavigationDestination(icon: Icon(Icons.data_usage_outlined), selectedIcon: Icon(Icons.data_usage_rounded), label: 'Consumo'),
+          NavigationDestination(
+            icon: unseenAlertIds.isEmpty
+                ? const Icon(Icons.shield_outlined)
+                : Badge(label: Text('${unseenAlertIds.length}'), child: const Icon(Icons.shield_outlined)),
+            selectedIcon: unseenAlertIds.isEmpty
+                ? const Icon(Icons.shield_rounded)
+                : Badge(label: Text('${unseenAlertIds.length}'), child: const Icon(Icons.shield_rounded)),
+            label: 'Alertas',
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> changeKillSwitch(bool enabled) async {
     if (vpnLoading) return;
+    if (vpn is AndroidVpn) {
+      try { await (vpn as AndroidVpn).openVpnSettings(); }
+      on ApiException catch (e) { if (mounted) setState(() => error = e.message); }
+      return;
+    }
     if (!enabled) {
       final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
         title: const Text('Desactivar Kill Switch'),
@@ -355,8 +524,10 @@ class _ShieldHomeState extends State<ShieldHome> {
     if (vpnLoading || token == null) return;
     setState(() { vpnLoading = true; connectionTransition = true; error = null; });
     try {
-      if (vpnConnected || trafficBlocked) { await vpn.disconnect(); } else { await vpn.connect(token!, signedInAs!); }
-      if (mounted) setState(() { vpnGeneration++; vpnConnected = !(vpnConnected || trafficBlocked); trafficBlocked = vpnConnected; gatewayHealthy = vpnConnected ? true : null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; if (!vpnConnected) usage = null; });
+      if (vpnConnected || (trafficBlocked && !Platform.isAndroid)) { await vpn.disconnect(); } else { await vpn.connect(token!, signedInAs!); }
+      final active = await vpn.isConnected();
+      final blocked = await vpn.isKillSwitchEnabled();
+      if (mounted) setState(() { vpnGeneration++; vpnConnected = active; trafficBlocked = blocked; gatewayHealthy = vpnConnected ? true : null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; if (!vpnConnected) usage = null; });
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
@@ -377,10 +548,13 @@ class _ShieldHomeState extends State<ShieldHome> {
       if (vpnConnected || trafficBlocked) await vpn.disconnect();
       await pushStarting;
       if (token != null) await push.stop(token!);
+      if (vpn is AndroidVpn) await (vpn as AndroidVpn).clearSession();
       monitor?.cancel();
       alertsTimer?.cancel();
       alertSession++;
       if (mounted) setState(() { unseenAlertIds.clear(); alertsInitialized = false; lastAlertId = 0; pushActive = false; pushStarting = null; vpnGeneration++; token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; usageHistory = null; historyUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertsChecking = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo desconectar la VPN.');
     } finally {
@@ -432,7 +606,14 @@ class _ShieldHomeState extends State<ShieldHome> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    // On Android use the mobile layout (bottom navigation); everywhere
+    // else keep the existing desktop layout exactly as it was.
+    // (Platform.isAndroid, not defaultTargetPlatform: widget tests run
+    // with an Android target platform even on a Linux host.)
+    final android = widget.androidLayout ?? Platform.isAndroid;
+    if (android) return _androidScaffold();
+    return Scaffold(
     body: DecoratedBox(
       decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFf2f1e9), cream, Color(0xFFc2ceaf), Color(0xFF879f7a)])),
       child: Stack(children: [
@@ -460,7 +641,8 @@ class _ShieldHomeState extends State<ShieldHome> {
         })),
       ]),
     ),
-  );
+    );
+  }
 
   Widget brandPanel({bool compact = false}) => Container(
     padding: EdgeInsets.fromLTRB(compact ? 28 : 42, compact ? 28 : 42, compact ? 28 : 42, compact ? 25 : 40),
@@ -532,12 +714,7 @@ class _ShieldHomeState extends State<ShieldHome> {
     final content = AnimatedSwitcher(duration: const Duration(milliseconds: 220), child: KeyedSubtree(key: ValueKey(page), child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        switch (page) {
-          1 => SettingsPanel(android: Platform.isAndroid, pushActive: pushActive, connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices),
-          2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable, history: usageHistory, historyUnavailable: historyUnavailable),
-          3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, busy: alertsLoading || alertsChecking, error: alertsError, onRefresh: () => refreshAlerts(), onReview: reviewAlert, newAlerts: unseenAlertIds.length, onAcknowledge: () => setState(() => unseenAlertIds.clear())),
-          _ => homePanel(),
-        },
+        _dashboardPage(),
         if (page != 0 && error != null) ...[const SizedBox(height: 12), Text(error!, style: const TextStyle(color: Color(0xFF9c4c42), fontSize: 13))],
       ],
     )));
@@ -570,11 +747,11 @@ class _ShieldHomeState extends State<ShieldHome> {
     const SizedBox(height: 36),
     Center(child: PowerOrb(connected: vpnConnected, loading: connectionTransition)),
     const SizedBox(height: 25),
-    Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : (dnsHealthy == false ? 'DNS sin respuesta' : (internetHealthy == false ? 'Prueba de Internet sin respuesta' : (Platform.isAndroid ? 'Túnel activo' : 'Conectado')))) : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
+    Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : (dnsHealthy == false ? 'DNS sin respuesta' : (internetHealthy == false ? 'Prueba de Internet sin respuesta' : 'Conectado'))) : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
     const SizedBox(height: 8),
     Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null && !Platform.isAndroid ? 'Comprobando la conexión con el servidor VPN.' : (dnsHealthy == false ? 'El DNS de la VPN no respondió a la prueba.' : (internetHealthy == false ? 'La prueba de Internet no respondió; algunas redes bloquean este tipo de comprobación.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar tu VPN.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF6e7c6a), height: 1.4))),
     const SizedBox(height: 30),
-    SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: vpnConnected ? const Color(0xffa6433a) : forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
+    SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: vpnConnected ? const Color(0xffa6433a) : forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked && !Platform.isAndroid ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
     const SizedBox(height: 12), Center(child: TextButton.icon(onPressed: vpnLoading ? null : manageDevices, icon: const Icon(Icons.devices_rounded, size: 17), label: const Text('Administrar dispositivos'), style: TextButton.styleFrom(foregroundColor: forest))),
     Center(child: TextButton.icon(onPressed: vpnLoading ? null : signOut, icon: const Icon(Icons.logout_rounded, size: 17), label: const Text('Cerrar sesión'), style: TextButton.styleFrom(foregroundColor: forest))),
   ]);
