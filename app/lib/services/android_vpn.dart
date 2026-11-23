@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'api_client.dart';
 import 'linux_vpn.dart';
@@ -15,14 +16,35 @@ class AndroidVpn extends LinuxVpn {
     }
   }
 
+  Future<void> saveSession(String account, String token) => _call<void>('saveSession', {'account': account, 'token': token});
+  Future<void> clearSession() => _call<void>('clearSession');
+  Future<Map<String, String>?> restoredSession() async {
+    final value = await _call<Map<Object?, Object?>?>('session');
+    if (value == null) return null;
+    try {
+      final token = value['token'] as String;
+      final claims = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(token.split('.')[1])))) as Map;
+      if ((claims['exp'] as num) * 1000 <= DateTime.now().millisecondsSinceEpoch) {
+        await clearSession();
+        return null;
+      }
+      return {'account': value['account'] as String, 'token': token};
+    } catch (_) {
+      await clearSession();
+      return null;
+    }
+  }
+
   @override
   Future<String> deviceId() => _call<String>('deviceId');
   @override
   Future<bool> isConnected() => _call<bool>('isConnected');
   @override
-  Future<bool> isKillSwitchEnabled() async => false;
+  Future<bool> isKillSwitchEnabled() => _call<bool>('isKillSwitchEnabled');
+  Future<bool> isAlwaysOn() => _call<bool>('isAlwaysOn');
+  Future<void> openVpnSettings() => _call<void>('vpnSettings');
   @override
-  Future<void> setKillSwitch(bool enabled) async => throw const ApiException('El bloqueo permanente de Android aún no está disponible.');
+  Future<void> setKillSwitch(bool enabled) => openVpnSettings();
   @override
   Future<bool?> gatewayReachable() async => null;
   @override
