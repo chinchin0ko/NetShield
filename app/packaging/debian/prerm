@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+if [ "$1" = remove ] && [ -e /var/lib/netshield-lock/active.json ]; then
+  echo 'ATENCIÓN: desactiva el bloqueo de NetShield antes de retirar el paquete.' >&2
+fi
