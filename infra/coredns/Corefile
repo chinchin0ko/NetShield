@@ -1,0 +1,11 @@
+# NetShield VPN - CoreDNS como resolutor upstream de Pi-hole.
+# Pi-hole (10.5.0.2) filtra los dominios; CoreDNS resuelve hacia internet.
+# Los clientes VPN siguen usando 10.5.0.2 como DNS; nada cambia para ellos.
+.:53 {
+    errors
+    cache 30
+    forward . 1.1.1.1 8.8.8.8 {
+        max_concurrent 1000
+    }
+    log
+}

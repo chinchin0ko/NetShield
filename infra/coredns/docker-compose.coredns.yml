@@ -1,0 +1,14 @@
+# Fragmento para agregar el servicio coredns al docker-compose.yml del VPS
+# (~/wireguard-docker/docker-compose.yml). Red: netshield_net (10.5.0.0/24).
+# CoreDNS escucha solo dentro de la red Docker (10.5.0.5:53); no se publica
+# ningun puerto al host. Solo Pi-hole (10.5.0.2) le habla como upstream.
+services:
+  coredns:
+    image: coredns/coredns:latest
+    container_name: coredns
+    networks:
+      netshield_net:
+        ipv4_address: 10.5.0.5
+    volumes:
+      - ./coredns/Corefile:/Corefile:ro
+    restart: unless-stopped
