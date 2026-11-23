@@ -12,6 +12,13 @@ SID = re.compile(r'\bsid:\s*(\d+)\s*;', re.I)
 # Select rules that can be evaluated independently of rules outside this subset.
 STATE_DEPENDENCY = re.compile(r'\b(?:flowbits|xbits):\s*(?:isset|isnotset)\b|\b(?:flowbits|xbits):\s*noalert\b', re.I)
 TEST_RULE = 'alert dns any any -> any any (msg:"NETSHIELD MALWARE TEST simulated indicator"; dns.query; content:"netshield-sensor-test.invalid"; nocase; sid:9900099; rev:1;)'
+# Documented Suricata test signature (GPL ATTACK_RESPONSE id check returned
+# root, sid 2100498): a server response containing the output of `id`
+# (uid=0(root)) triggers it. It verifies detection over plain-HTTP browser
+# traffic through the tunnel. Appended unconditionally, like TEST_RULE,
+# because its message carries no category keyword, so the selector above
+# would otherwise drop it. Rule text copied verbatim from the ET Open source.
+ID_CHECK_RULE = 'alert ip any any -> any any (msg:"GPL ATTACK_RESPONSE id check returned root"; content:"uid=0|28|root|29|"; classtype:bad-unknown; sid:2100498; rev:7; metadata:created_at 2010_09_23, confidence Medium, signature_severity Informational, updated_at 2019_07_26;)'
 
 
 def build(source_config, source_rules, output_dir, rule_limit=3000):
@@ -50,7 +57,7 @@ def build(source_config, source_rules, output_dir, rule_limit=3000):
     if not chosen:
         raise ValueError('no matching rules')
     output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    (output_dir / 'rules.rules').write_text('\n'.join(chosen + [TEST_RULE]) + '\n')
+    (output_dir / 'rules.rules').write_text('\n'.join(chosen + [TEST_RULE, ID_CHECK_RULE]) + '\n')
     config['outputs'] = [{'eve-log': {'enabled': True, 'filetype': 'regular',
                                       'filename': 'eve.json', 'types': [{'alert': {'payload': False, 'packet': False}}, {'stats': {'totals': True, 'threads': False, 'deltas': False}}]}}]
     config['stats'] = {'enabled': True, 'interval': 30}

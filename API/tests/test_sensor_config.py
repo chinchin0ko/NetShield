@@ -23,7 +23,7 @@ def test_build_limits_rules_and_disables_other_logs(tmp_path):
     assert settings['outputs'][0]['eve-log']['types'] == [{'alert': {'payload': False, 'packet': False}}, {'stats': {'totals': True, 'threads': False, 'deltas': False}}]
     assert settings['stats'] == {'enabled': True, 'interval': 30}
     assert 'sid:1' in (output / 'rules.rules').read_text()
-    assert 'sid:2' not in (output / 'rules.rules').read_text()
+    assert 'sid:2;' not in (output / 'rules.rules').read_text()
 
 
 def test_selection_balances_categories_ignores_stateful_dependencies_and_is_stable(tmp_path):
