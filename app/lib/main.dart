@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'services/api_client.dart';
 import 'services/linux_vpn.dart';
 import 'services/android_vpn.dart';
+import 'services/windows_vpn.dart';
 import 'services/android_push.dart';
 import 'services/desktop_notifications.dart';
 import 'screens/dashboard_panels.dart';
@@ -83,7 +84,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   List<Map<String, dynamic>>? alerts;
   String? alertsError;
   String alertMonitoring = 'not_active';
-  late final LinuxVpn vpn = widget.vpn ?? (Platform.isAndroid ? AndroidVpn(widget.api) : LinuxVpn(widget.api));
+  late final LinuxVpn vpn = widget.vpn ?? (Platform.isAndroid ? AndroidVpn(widget.api) : (Platform.isWindows ? WindowsVpn(widget.api) : LinuxVpn(widget.api)));
   late final AlertNotifier notifier = widget.notifier ?? LinuxAlertNotifier();
   late final AndroidPush push = AndroidPush(widget.api, vpn);
   Future<void>? pushStarting;
