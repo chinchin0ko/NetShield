@@ -4,7 +4,7 @@
 # ningun puerto al host. Solo Pi-hole (10.5.0.2) le habla como upstream.
 services:
   coredns:
-    image: coredns/coredns:latest
+    image: coredns/coredns:1.15.0
     container_name: coredns
     networks:
       netshield_net:
