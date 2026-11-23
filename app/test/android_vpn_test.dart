@@ -23,11 +23,18 @@ void main() {
       calls.add(call);
       if (call.method == 'identity') return {'deviceId': 'a' * 32, 'publicKey': 'public-key'};
       if (call.method == 'isConnected') return true;
+      if (call.method == 'isKillSwitchEnabled') return true;
       if (call.method == 'usage') return {'received': 10, 'sent': 20};
       return null;
     });
   });
   tearDown(() => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(channel, null));
+  test('kill switch opens Android settings and reads the native state', () async {
+    final vpn = AndroidVpn(ProvisioningApi(), channel: channel);
+    await vpn.setKillSwitch(true);
+    expect(calls.single.method, 'vpnSettings');
+    expect(await vpn.isKillSwitchEnabled(), isTrue);
+  });
   test('registers the locally generated public key and starts the native tunnel', () async {
     final api = ProvisioningApi();
     final vpn = AndroidVpn(api, channel: channel);
@@ -38,6 +45,6 @@ void main() {
     expect((calls.last.arguments as Map)['account'], 'demo');
     expect(await vpn.isConnected(), isTrue);
     expect((await vpn.trafficUsage())!.receivedBytes, 10);
-    expect(await vpn.isKillSwitchEnabled(), isFalse);
+    expect(await vpn.isKillSwitchEnabled(), isTrue);
   });
 }

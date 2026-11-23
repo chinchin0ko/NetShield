@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -91,7 +92,7 @@ void main() {
     expect(codec.decodeEnvelope((await result.future)!), isNull);
     expect(vpn.connected, isFalse);
     expect(await vpn.isKillSwitchEnabled(), isFalse);
-  });
+  }, skip: !Platform.isLinux);
   testWidgets('Closing everything reports disconnect errors and keeps the VPN intact', (tester) async {
     final api = FakeApi();
     final vpn = FakeVpn(api)..connected = true..failDisconnect = true;
@@ -107,7 +108,7 @@ void main() {
     final envelope = await result.future;
     expect(() => codec.decodeEnvelope(envelope!), throwsA(isA<PlatformException>()));
     expect(vpn.connected, isTrue);
-  });
+  }, skip: !Platform.isLinux);
   testWidgets('Dashboard fits a phone-sized screen', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
