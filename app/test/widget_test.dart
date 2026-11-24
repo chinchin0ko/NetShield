@@ -457,6 +457,27 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Login fades into the dashboard instead of swapping instantly', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api)));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    // Mid-crossfade: the outgoing login and the incoming dashboard coexist.
+    expect(find.byKey(const ValueKey('login')), findsOneWidget);
+    expect(find.byKey(const ValueKey('dashboard')), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('login')), findsNothing);
+    expect(find.byKey(const ValueKey('dashboard')), findsOneWidget);
+    expect(find.text('Conectar'), findsOneWidget);
+  });
+
   testWidgets('Loading states show skeleton placeholders instead of spinners', (tester) async {
     tester.view.physicalSize = const Size(1200, 1100);
     tester.view.devicePixelRatio = 1;

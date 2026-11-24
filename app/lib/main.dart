@@ -631,36 +631,54 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
     // (Platform.isAndroid, not defaultTargetPlatform: widget tests run
     // with an Android target platform even on a Linux host.)
     final android = widget.androidLayout ?? Platform.isAndroid;
-    if (android) return _androidScaffold();
-    return Scaffold(
-    body: DecoratedBox(
+    final Widget content;
+    if (android) {
+      // Fade between the login screen and the dashboard instead of
+      // swapping them instantly.
+      content = AnimatedSwitcher(
+        duration: const Duration(milliseconds: 450),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        child: KeyedSubtree(key: ValueKey(token == null ? 'login' : 'dashboard'), child: _androidScaffold()),
+      );
+    } else {
+      content = Scaffold(
+      body: DecoratedBox(
       decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFf2f1e9), cream, Color(0xFFc2ceaf), Color(0xFF879f7a)])),
       child: Stack(children: [
         const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: AtmospherePainter()))),
         SafeArea(child: LayoutBuilder(builder: (context, bounds) {
-          if (token != null) {
-            final padding = bounds.maxWidth < 600 ? 12.0 : 24.0;
-            return Center(child: Padding(
-              padding: EdgeInsets.all(padding),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 900),
-                child: SizedBox(height: (bounds.maxHeight - 2 * padding).clamp(0.0, double.infinity),
-                  child: GlassPanel(child: connectedPanel())),
-              ),
-            ));
-          }
-          return Center(child: SingleChildScrollView(padding: const EdgeInsets.all(24), child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1050),
-            child: GlassPanel(child: bounds.maxWidth < 760
-              ? Column(children: [brandPanel(compact: true), contentPanel()])
-              : IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  Expanded(flex: 5, child: brandPanel()), Expanded(flex: 5, child: contentPanel()),
-                ]))),
-          )));
+          // Fade between the login screen and the dashboard instead of
+          // swapping them instantly.
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 450),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            child: token != null
+              ? KeyedSubtree(key: const ValueKey('dashboard'), child: Center(child: Padding(
+                padding: EdgeInsets.all(bounds.maxWidth < 600 ? 12.0 : 24.0),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: SizedBox(height: (bounds.maxHeight - 2 * (bounds.maxWidth < 600 ? 12.0 : 24.0)).clamp(0.0, double.infinity),
+                    child: GlassPanel(child: connectedPanel())),
+                ),
+              )))
+              : KeyedSubtree(key: const ValueKey('login'), child: Center(child: SingleChildScrollView(padding: const EdgeInsets.all(24), child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1050),
+                child: GlassPanel(child: bounds.maxWidth < 760
+                  ? Column(children: [brandPanel(compact: true), contentPanel()])
+                  : IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Expanded(flex: 5, child: brandPanel()), Expanded(flex: 5, child: contentPanel()),
+                    ]))),
+              )))),
+          );
         })),
       ]),
     ),
     );
+    }
+    // Soft entrance when the app first opens: fades in and rises slightly.
+    return _EntranceFade(child: content);
   }
 
   Widget brandPanel({bool compact = false}) => Container(
@@ -778,6 +796,24 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   Widget tab(String title, bool active, VoidCallback onTap) => Expanded(child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(12), child: AnimatedContainer(duration: const Duration(milliseconds: 180), padding: const EdgeInsets.symmetric(vertical: 12), decoration: BoxDecoration(color: active ? Colors.white : Colors.transparent, borderRadius: BorderRadius.circular(12), boxShadow: active ? [BoxShadow(color: deep.withValues(alpha: .07), blurRadius: 8, offset: const Offset(0, 3))] : []), child: Text(title, textAlign: TextAlign.center, style: TextStyle(color: active ? deep : const Color(0xFF84927f), fontSize: 12, fontWeight: FontWeight.w800)))));
   Widget fieldLabel(String value) => Text(value, style: const TextStyle(color: forest, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2));
   Widget input(TextEditingController controller, String hint, IconData icon, {bool obscure = false, Widget? suffix, String? autofill}) => TextField(controller: controller, obscureText: obscure, autofillHints: autofill == null ? null : [autofill], onSubmitted: (_) { if (!register) signIn(); }, style: const TextStyle(color: deep, fontSize: 14), decoration: InputDecoration(hintText: hint, hintStyle: const TextStyle(color: Color(0xFFa6b0a1), fontSize: 13), prefixIcon: Icon(icon, color: green, size: 20), suffixIcon: suffix, filled: true, fillColor: Colors.white.withValues(alpha: .74), contentPadding: const EdgeInsets.symmetric(vertical: 18), enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: Color(0xFFd9e2d4))), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: const BorderSide(color: green, width: 1.4))));
+}
+
+/// Soft entrance when the app first opens: fades in and rises slightly.
+/// One-shot, so it never blocks widget tests that wait for the app to settle.
+class _EntranceFade extends StatelessWidget {
+  const _EntranceFade({required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween<double>(begin: 0, end: 1),
+    duration: const Duration(milliseconds: 650),
+    curve: Curves.easeOutCubic,
+    builder: (context, value, inner) => Opacity(
+      opacity: value,
+      child: Transform.translate(offset: Offset(0, 14 * (1 - value)), child: inner),
+    ),
+    child: child,
+  );
 }
 
 Widget shieldMark(double size) => Container(width: size, height: size, decoration: BoxDecoration(borderRadius: BorderRadius.circular(size * .32), gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF8da980), forest]), border: Border.all(color: Colors.white.withValues(alpha: .8)), boxShadow: [BoxShadow(color: forest.withValues(alpha: .22), blurRadius: 12, offset: const Offset(0, 5))]), child: Icon(Icons.shield_rounded, color: Colors.white.withValues(alpha: .95), size: size * .6));
