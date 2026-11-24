@@ -1,7 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 const _ink = Color(0xff344e41);
-const _muted = Color(0xff6e7c6a);
+const _muted = Color(0xff55655b);
 const _green = Color(0xff3a5a40);
 
 String alertStatus(String status) => switch (status) {
@@ -73,9 +73,9 @@ class AlertCard extends StatelessWidget {
             Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: severityColor.withValues(alpha: .13), borderRadius: BorderRadius.circular(20)), child: Text('Severidad ${alertSeverity(severity)}', style: TextStyle(color: severityColor, fontWeight: FontWeight.w800, fontSize: 11))),
           ]),
           const SizedBox(height: 5),
-          Text('Dispositivo ${device.substring(0, 8)} · ${alertDate(timestamp)}', style: const TextStyle(color: _muted, fontSize: 12)),
+          Text('Dispositivo ${device.substring(0, 8)} · ${alertDate(timestamp)}', style: const TextStyle(color: _muted, fontSize: 13)),
           const SizedBox(height: 5),
-          Text(alertStatus(status), style: const TextStyle(color: _green, fontSize: 12)),
+          Text(alertStatus(status), style: const TextStyle(color: _green, fontSize: 13)),
         ])),
         children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Divider(height: 18),
@@ -91,7 +91,7 @@ class AlertCard extends StatelessWidget {
           Text(category == 'Prueba simulada'
             ? 'Esta detección es una prueba y no indica una infección.'
             : 'La firma es un indicio, no una confirmación de infección. El sensor no conserva aquí el dominio, la URL ni el contenido de la conexión.',
-            style: const TextStyle(color: _muted, fontSize: 12, height: 1.45)),
+            style: const TextStyle(color: _muted, fontSize: 14, height: 1.45)),
           const SizedBox(height: 10),
           const Text('Revisión', style: TextStyle(color: _ink, fontWeight: FontWeight.w800, fontSize: 13)),
           Wrap(spacing: 8, children: [
@@ -110,8 +110,8 @@ class _Detail extends StatelessWidget {
   final String label, value;
   @override
   Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(bottom: 7), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Text(label, style: const TextStyle(color: _muted, fontSize: 11)),
+    Text(label, style: const TextStyle(color: _muted, fontSize: 12)),
     const SizedBox(height: 2),
-    Text(value, style: const TextStyle(color: _ink, fontSize: 12, height: 1.35)),
+    Text(value, style: const TextStyle(color: _ink, fontSize: 13, height: 1.35)),
   ]));
 }
