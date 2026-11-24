@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:netshield_app/main.dart';
+import 'package:netshield_app/screens/dashboard_panels.dart';
+import 'package:netshield_app/screens/skeleton.dart';
 import 'package:netshield_app/services/api_client.dart';
 import 'package:netshield_app/services/linux_vpn.dart';
 import 'package:netshield_app/services/desktop_notifications.dart';
@@ -453,5 +455,26 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Alertas y amenazas'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Loading states show skeleton placeholders instead of spinners', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: SingleChildScrollView(child: UsagePanel(connected: true, usage: null, loading: true, serverUsage: null, serverUnavailable: false, history: null, historyUnavailable: false)))));
+    await tester.pump();
+    expect(find.byType(SkeletonBox), findsWidgets);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Consultando consumo…'), findsNothing);
+    expect(find.text('Consultando historial…'), findsNothing);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SingleChildScrollView(child: AlertsPanel(alerts: null, monitoring: 'experimental', loading: true, busy: false, error: null, onRefresh: () {}, onReview: (id, status) {}, newAlerts: 0, onAcknowledge: () {})))));
+    await tester.pump();
+    expect(find.byType(SkeletonBox), findsWidgets);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SingleChildScrollView(child: AlertsPanel(alerts: [{"id": 1, "review_status": "new", "device_id": "a" * 32, "signature": "ET MALWARE indicador detectado", "occurred_at": "2026-01-01T00:00:00Z", "severity": 3}], monitoring: 'experimental', loading: false, busy: false, error: null, onRefresh: () {}, onReview: (id, status) {}, newAlerts: 0, onAcknowledge: () {})))));
+    await tester.pump();
+    expect(find.byType(SkeletonBox), findsNothing);
+    expect(find.text('ET MALWARE indicador detectado'), findsOneWidget);
   });
 }

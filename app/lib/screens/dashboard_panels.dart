@@ -4,6 +4,7 @@ import '../services/api_client.dart';
 import 'usage_chart.dart';
 import 'format_bytes.dart';
 import 'alert_cards.dart';
+import 'skeleton.dart';
 
 const _ink = Color(0xff344e41);
 const _green = Color(0xff3a5a40);
@@ -72,7 +73,7 @@ class UsagePanel extends StatelessWidget {
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     const PanelHeading('TU ACTIVIDAD', 'Consumo', 'El tráfico de este dispositivo durante la conexión actual.'),
     const SizedBox(height: 25),
-    if (loading && usage == null) const Center(child: CircularProgressIndicator())
+    if (loading && usage == null) const SkeletonUsageCards()
     else if (!connected || usage == null) SoftCard(child: Column(children: [
       const Icon(Icons.data_usage_rounded, color: Color(0xff8ea58b), size: 39), const SizedBox(height: 12),
       Text(connected ? 'No pudimos leer el consumo de esta conexión.' : 'Conecta la VPN para ver tu consumo.', textAlign: TextAlign.center, style: const TextStyle(color: _muted, height: 1.4)),
@@ -88,7 +89,8 @@ class UsagePanel extends StatelessWidget {
     const SizedBox(height: 8),
     const Text('Contadores del servidor desde el último reinicio de WireGuard. No son un historial.', style: TextStyle(color: _muted, fontSize: 14, height: 1.4)),
     const SizedBox(height: 12),
-    if (serverUsage == null) SoftCard(child: Text(serverUnavailable ? 'No pudimos consultar el servidor.' : 'Consultando consumo…', style: const TextStyle(color: _muted, fontSize: 14)))
+    if (serverUsage == null && serverUnavailable) const SoftCard(child: Text('No pudimos consultar el servidor.', style: TextStyle(color: _muted, fontSize: 14)))
+    else if (serverUsage == null) const Column(children: [SkeletonListRow(), SizedBox(height: 8), SkeletonListRow()])
     else if (serverUsage!.isEmpty) const SoftCard(child: Text('No hay dispositivos habilitados.', style: TextStyle(color: _muted, fontSize: 14)))
     else ...serverUsage!.map((device) => Padding(padding: const EdgeInsets.only(bottom: 8), child: SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Dispositivo ${device.deviceId.substring(0, 8)}', style: const TextStyle(color: _ink, fontWeight: FontWeight.w800, fontSize: 13)),
@@ -100,7 +102,8 @@ class UsagePanel extends StatelessWidget {
     const SizedBox(height: 8),
     const Text('Estimaciones por día UTC a partir de muestras. Los reinicios o interrupciones pueden dejar datos incompletos; no es facturación.', style: TextStyle(color: _muted, fontSize: 14, height: 1.4)),
     const SizedBox(height: 12),
-    if (history == null) SoftCard(child: Text(historyUnavailable ? 'No pudimos consultar el historial.' : 'Consultando historial…', style: const TextStyle(color: _muted, fontSize: 14)))
+    if (history == null && historyUnavailable) const SoftCard(child: Text('No pudimos consultar el historial.', style: TextStyle(color: _muted, fontSize: 14)))
+    else if (history == null) const Column(children: [SkeletonListRow(), SizedBox(height: 8), SkeletonListRow()])
     else if (history!.isEmpty) const SoftCard(child: Text('Aún no hay muestras guardadas.', style: TextStyle(color: _muted, fontSize: 14)))
     else ...history!.map((day) => Padding(padding: const EdgeInsets.only(bottom: 8), child: SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('${day.day} · Dispositivo ${day.deviceId.substring(0, 8)}', style: const TextStyle(color: _ink, fontWeight: FontWeight.w800, fontSize: 13)),
@@ -152,7 +155,11 @@ class _AlertsPanelState extends State<AlertsPanel> {
         _filter('all', 'Todas'), _filter('new', 'Pendientes'), _filter('reviewed', 'Revisadas'), _filter('false_positive', 'Posibles falsos positivos'),
       ]),
       const SizedBox(height: 8),
-      if (widget.loading) const Padding(padding: EdgeInsets.all(12), child: Center(child: CircularProgressIndicator())),
+      if (widget.loading && alerts == null) ...[
+        const Padding(padding: EdgeInsets.only(top: 8), child: SkeletonAlertCard()),
+        const Padding(padding: EdgeInsets.only(top: 8), child: SkeletonAlertCard()),
+        const Padding(padding: EdgeInsets.only(top: 8), child: SkeletonAlertCard()),
+      ],
       if (widget.error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Text(widget.error!, style: const TextStyle(color: _muted, fontSize: 13))),
       if (!widget.loading && alerts != null && alerts.isEmpty) const SoftCard(child: Text('Aún no hay alertas guardadas.', style: TextStyle(color: _muted)))
       else if (!widget.loading && visible != null && visible.isEmpty) const SoftCard(child: Text('No hay alertas con este filtro.', style: TextStyle(color: _muted))),
