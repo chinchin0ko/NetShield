@@ -11,6 +11,10 @@ def test_failed_sensor_restart_restores_last_rules(tmp_path):
     live = etc / 'rules.rules'
     live.write_text('previous working rules\n')
     (etc / 'suricata.yaml').write_text('outputs: []\n')
+    etc_ar = tmp_path / 'etc_ar'
+    etc_ar.mkdir()
+    (etc_ar / 'rules.rules').write_text('previous AR rules\n')
+    (etc_ar / 'suricata.yaml').write_text('outputs: []\n')
     fake_bin = tmp_path / 'bin'
     fake_bin.mkdir()
     log = tmp_path / 'systemctl.log'
@@ -24,11 +28,15 @@ def test_failed_sensor_restart_restores_last_rules(tmp_path):
         path = fake_bin / name
         path.write_text('#!/usr/bin/env bash\n' + body + '\n')
         path.chmod(0o755)
-    script = source.read_text().replace('/var/lib/netshield-vpn-sensor/rule-updates', str(tmp_path / 'updates'))
+    # Replace the longer AR paths first: they share the main prefix.
+    script = source.read_text().replace('/var/lib/netshield-vpn-sensor-ar/rule-updates', str(tmp_path / 'updates_ar'))
+    script = script.replace('/etc/netshield-vpn-sensor-ar', str(etc_ar))
+    script = script.replace('/var/lib/netshield-vpn-sensor/rule-updates', str(tmp_path / 'updates'))
     script = script.replace('/etc/netshield-vpn-sensor', str(etc))
     script = script.replace('/usr/local/lib/netshield/build_suricata_sensor.py', str(tmp_path / 'builder.py'))
     run = subprocess.run(['bash'], input=script, text=True, capture_output=True,
                          env={**os.environ, 'PATH': f'{fake_bin}:/usr/bin:/bin'}, timeout=15)
     assert run.returncode != 0
     assert live.read_text() == 'previous working rules\n'
+    assert (etc_ar / 'rules.rules').read_text() == 'previous AR rules\n'
     assert log.read_text().splitlines() == ['restart netshield-vpn-sensor.service'] * 2

@@ -52,3 +52,29 @@ def test_rejects_duplicate_or_reserved_sids(tmp_path):
     rules.write_text('alert dns any any -> any any (msg:"ET MALWARE example"; sid:9900099;)\n')
     with pytest.raises(ValueError):
         sensor.build(config, rules, tmp_path / 'out')
+
+
+def test_second_instance_selects_only_its_categories_without_overlap(tmp_path):
+    config, rules = tmp_path / 'in.yaml', tmp_path / 'rules'
+    config.write_text('outputs: []\n')
+    rules.write_text(
+        'alert tcp any any -> any any (msg:"ET ATTACK_RESPONSE example"; sid:100;)\n'
+        'alert tcp any any -> any any (msg:"ET WEB example"; sid:101;)\n'
+        'alert tcp any any -> any any (msg:"ET ATTACK_RESPONSE malware overlap"; sid:102;)\n'
+        'alert tcp any any -> any any (msg:"ET ATTACK_RESPONSE pinned"; sid:2000499;)\n'
+        'alert tcp any any -> any any (msg:"ET MALWARE example"; sid:103;)\n')
+    output = tmp_path / 'out'
+    assert sensor.build(config, rules, output, rule_limit=2000,
+                        categories=('ATTACK_RESPONSE', 'WEB'),
+                        exclude_sids={2000499, 2100498, 9900099},
+                        exclude_words={'MALWARE', 'TROJAN', 'EXPLOIT', 'CNC',
+                                       'PHISHING', 'SCAN', 'DOS', 'CURRENT_EVENTS'},
+                        append_fixed=False) == 2
+    result = (output / 'rules.rules').read_text()
+    assert 'sid:100;' in result
+    assert 'sid:101;' in result
+    assert 'sid:102;' not in result  # carries a main-sensor category word
+    assert 'sid:2000499;' not in result  # pinned by the main sensor
+    assert 'sid:103;' not in result
+    assert 'sid:9900099;' not in result
+    assert 'sid:2100498;' not in result

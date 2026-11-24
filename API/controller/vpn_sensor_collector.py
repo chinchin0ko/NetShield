@@ -12,8 +12,9 @@ from pathlib import Path
 import suricata_collector as common
 from vpn_sensor_logrotate import may_remove, pending_files, rotate
 
-EVE = Path('/var/log/netshield-vpn-sensor/eve.json')
-STATE = Path('/var/lib/netshield-vpn-sensor/cursor.json')
+EVE = Path(os.environ.get('NETSHIELD_SENSOR_EVE', '/var/log/netshield-vpn-sensor/eve.json'))
+STATE = Path(os.environ.get('NETSHIELD_SENSOR_STATE', '/var/lib/netshield-vpn-sensor/cursor.json'))
+SERVICE = os.environ.get('NETSHIELD_SENSOR_SERVICE', 'netshield-vpn-sensor.service')
 KEY = Path('/etc/netshield-vpn-sensor/ingest.key')
 URL = 'https://10.0.0.250:18443/internal/suricata/personal'
 PKI = Path('/etc/netshield-proxy-client')
@@ -22,7 +23,7 @@ _reopen_requested_pid = None
 
 def healthy():
     try:
-        state = subprocess.run(['systemctl', 'is-active', '--quiet', 'netshield-vpn-sensor.service'], timeout=4)
+        state = subprocess.run(['systemctl', 'is-active', '--quiet', SERVICE], timeout=4)
         ntp = subprocess.run(['timedatectl', 'show', '-p', 'NTPSynchronized', '--value'],
                              timeout=4, capture_output=True, text=True, check=True)
         return state.returncode == 0 and ntp.stdout.strip() == 'yes'
@@ -31,7 +32,7 @@ def healthy():
 
 
 def sensor_pid():
-    result = subprocess.run(['systemctl', 'show', '-p', 'MainPID', '--value', 'netshield-vpn-sensor.service'],
+    result = subprocess.run(['systemctl', 'show', '-p', 'MainPID', '--value', SERVICE],
                             timeout=4, capture_output=True, text=True, check=True)
     main_pid = int(result.stdout.strip())
     if main_pid <= 0:

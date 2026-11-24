@@ -11,4 +11,4 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/etc/netshield-vpn-sensor /var/lib/netshield-vpn-sensor
+ReadWritePaths=/etc/netshield-vpn-sensor /var/lib/netshield-vpn-sensor /etc/netshield-vpn-sensor-ar /var/lib/netshield-vpn-sensor-ar

@@ -39,14 +39,18 @@ EXTRA_SIDS = (2009245, 2000499, 2000500, 2000501, 2000502, 2000503,
               2007725, 2007726)
 
 
-def build(source_config, source_rules, output_dir, rule_limit=6000):
+def build(source_config, source_rules, output_dir, rule_limit=6000,
+          categories=CATEGORIES, exclude_sids=(), exclude_words=(),
+          append_fixed=True):
     if not 1 <= rule_limit <= 10000:
         raise ValueError('invalid rule limit')
     config = yaml.safe_load(source_config.read_text())
     if not isinstance(config, dict) or not isinstance(config.get('outputs'), list):
         raise ValueError('invalid Suricata configuration')
-    categories = {name: [] for name in CATEGORIES}
+    categories = {name: [] for name in categories}
     seen = set()
+    exclude_sids = set(exclude_sids)
+    exclude_words = set(exclude_words)
     extra_by_sid = {}
     for rule in source_rules.read_text(errors='strict').splitlines():
         if not rule.startswith('alert ') or STATE_DEPENDENCY.search(rule):
@@ -55,10 +59,16 @@ def build(source_config, source_rules, output_dir, rule_limit=6000):
         if not message or not sid:
             continue
         value = int(sid.group(1))
-        if value in EXTRA_SIDS and value not in extra_by_sid:
+        if value in exclude_sids:
+            continue
+        if append_fixed and value in EXTRA_SIDS and value not in extra_by_sid:
             extra_by_sid[value] = rule
-        match = re.search(r'\b(' + '|'.join(CATEGORIES) + r')\b', message.group(1), re.I)
+        match = re.search(r'\b(' + '|'.join(categories) + r')\b', message.group(1), re.I)
         if not match:
+            continue
+        # A rule whose message also carries another instance's category word
+        # would be selected by both sensors and alert twice for one event.
+        if exclude_words and re.search(r'\b(' + '|'.join(exclude_words) + r')\b', message.group(1), re.I):
             continue
         if value == 9900099 or value in seen:
             raise ValueError('duplicate or reserved rule SID')
@@ -69,7 +79,7 @@ def build(source_config, source_rules, output_dir, rule_limit=6000):
     chosen = []
     while len(chosen) < rule_limit:
         added = False
-        for category in CATEGORIES:
+        for category in categories:
             if categories[category] and len(chosen) < rule_limit:
                 chosen.append(categories[category].pop()[1])
                 added = True
@@ -78,9 +88,10 @@ def build(source_config, source_rules, output_dir, rule_limit=6000):
     if not chosen:
         raise ValueError('no matching rules')
     extras = [extra_by_sid[sid] for sid in EXTRA_SIDS
-              if sid in extra_by_sid and sid not in seen]
+              if sid in extra_by_sid and sid not in seen] if append_fixed else []
+    fixed = [TEST_RULE, ID_CHECK_RULE] if append_fixed else []
     output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    (output_dir / 'rules.rules').write_text('\n'.join(chosen + extras + [TEST_RULE, ID_CHECK_RULE]) + '\n')
+    (output_dir / 'rules.rules').write_text('\n'.join(chosen + extras + fixed) + '\n')
     config['outputs'] = [{'eve-log': {'enabled': True, 'filetype': 'regular',
                                       'filename': 'eve.json', 'types': [{'alert': {'payload': False, 'packet': False}}, {'stats': {'totals': True, 'threads': False, 'deltas': False}}]}}]
     config['stats'] = {'enabled': True, 'interval': 30}
@@ -94,5 +105,14 @@ if __name__ == '__main__':
     parser.add_argument('config', type=Path)
     parser.add_argument('rules', type=Path)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--limit', type=int, default=6000)
+    parser.add_argument('--categories', nargs='*', default=list(CATEGORIES))
+    parser.add_argument('--exclude-sids', nargs='*', type=int, default=[])
+    parser.add_argument('--exclude-words', nargs='*', default=[])
+    parser.add_argument('--no-fixed-rules', action='store_true')
     args = parser.parse_args()
-    print('Reglas seleccionadas:', build(args.config, args.rules, args.output))
+    print('Reglas seleccionadas:', build(args.config, args.rules, args.output,
+          rule_limit=args.limit, categories=tuple(args.categories),
+          exclude_sids=set(args.exclude_sids),
+          exclude_words=set(args.exclude_words),
+          append_fixed=not args.no_fixed_rules))
