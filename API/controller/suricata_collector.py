@@ -17,6 +17,14 @@ URL = 'https://10.0.0.250:18443/internal/suricata/alerts'
 PKI = Path('/etc/netshield-proxy-client')
 MAX_LINE = 256 * 1024
 
+# Deliberate test indicator (sid 2100498, "GPL ATTACK_RESPONSE id check
+# returned root"): its signature contains no category keyword, so the label
+# filter in relevant() would drop it, just like the MALWARE test rule's
+# signature is kept by its keyword. Keep it explicitly for the VPN sensor
+# collector (include_network_threats) so the browser detection test reaches
+# the API like the sensor test does.
+ID_CHECK_SIGNATURE = 'GPL ATTACK_RESPONSE id check returned root'
+
 
 def relevant(line, *, include_network_threats=False):
     try:
@@ -26,7 +34,8 @@ def relevant(line, *, include_network_threats=False):
         if event.get('event_type') != 'alert' or not isinstance(signature, str):
             return None
         labels = ('MALWARE', 'TROJAN', 'EXPLOIT', 'CNC', 'PHISHING') if include_network_threats else ('MALWARE', 'TROJAN', 'EXPLOIT')
-        if not any(re.search(r'\b' + label + r'\b', signature.upper()) for label in labels):
+        is_id_check = include_network_threats and signature == ID_CHECK_SIGNATURE
+        if not is_id_check and not any(re.search(r'\b' + label + r'\b', signature.upper()) for label in labels):
             return None
         severity = alert['severity']
         timestamp = event['timestamp']
