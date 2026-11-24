@@ -797,7 +797,7 @@ class _PowerOrbState extends State<PowerOrb> {
   void syncPulse() {
     final shouldAnimate = widget.connected && !widget.loading && !MediaQuery.disableAnimationsOf(context);
     if (shouldAnimate && pulseTimer == null) {
-      pulseTimer = Timer.periodic(const Duration(milliseconds: 1900), (_) {
+      pulseTimer = Timer.periodic(const Duration(milliseconds: 1100), (_) {
         if (mounted) setState(() => bright = !bright);
       });
     } else if (!shouldAnimate) {
@@ -816,19 +816,19 @@ class _PowerOrbState extends State<PowerOrb> {
 
   @override
   Widget build(BuildContext context) => AnimatedScale(
-    scale: widget.connected && bright ? 1.045 : 1,
-    duration: const Duration(milliseconds: 1500), curve: Curves.easeInOut,
+    scale: widget.connected && bright ? 1.08 : 1,
+    duration: const Duration(milliseconds: 800), curve: Curves.easeInOut,
     child: AnimatedContainer(
       key: const ValueKey('connection-orb'),
-      duration: const Duration(milliseconds: 1500), curve: Curves.easeInOut,
+      duration: const Duration(milliseconds: 800), curve: Curves.easeInOut,
       width: 156, height: 156,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: widget.connected && bright
-          ? const [Color(0xfff8fff1), Color(0xffd3e9c8), Color(0xff9abb94)]
-          : const [Color(0xffeef1e5), Color(0xffbdceb1), Color(0xff90a98c)]),
+          ? const [Color(0xfffbfff5), Color(0xffdceccf), Color(0xffa4c49c)]
+          : const [Color(0xffe9ebe0), Color(0xffb3c4a6), Color(0xff879e83)]),
         border: Border.all(color: Colors.white.withValues(alpha: .8), width: 2),
-        boxShadow: [BoxShadow(color: green.withValues(alpha: widget.connected && bright ? .42 : .15), blurRadius: widget.connected && bright ? 42 : 22, spreadRadius: widget.connected && bright ? 4 : 0, offset: const Offset(0, 8))],
+        boxShadow: [BoxShadow(color: green.withValues(alpha: widget.connected && bright ? .55 : .12), blurRadius: widget.connected && bright ? 52 : 20, spreadRadius: widget.connected && bright ? 6 : 0, offset: const Offset(0, 8))],
       ),
       child: AnimatedSwitcher(duration: const Duration(milliseconds: 250), child: widget.loading
         ? const Center(key: ValueKey('loading'), child: SizedBox(width: 46, height: 46, child: CircularProgressIndicator(color: forest, strokeWidth: 3)))

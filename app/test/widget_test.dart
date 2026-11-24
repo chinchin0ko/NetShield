@@ -328,10 +328,10 @@ void main() {
     await tester.pumpAndSettle();
     final button = tester.widget<FilledButton>(find.ancestor(of: find.text('Desconectar'), matching: find.byType(FilledButton)));
     expect(button.style!.backgroundColor!.resolve({}), const Color(0xffa6433a));
-    await tester.pump(const Duration(milliseconds: 1900));
+    await tester.pump(const Duration(milliseconds: 1100));
     await tester.pump();
     final orbScale = tester.widget<AnimatedScale>(find.ancestor(of: find.byKey(const ValueKey('connection-orb')), matching: find.byType(AnimatedScale)));
-    expect(orbScale.scale, 1.045);
+    expect(orbScale.scale, 1.08);
   });
 
   testWidgets('Restored traffic lock can be disabled before login', (tester) async {
