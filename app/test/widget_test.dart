@@ -1,6 +1,3 @@
-import 'dart:async';
-import 'dart:io';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:netshield_app/main.dart';
@@ -77,38 +74,6 @@ class FakeApi extends ApiClient {
 }
 
 void main() {
-  testWidgets('Closing everything disconnects the VPN and lock before responding', (tester) async {
-    final api = FakeApi();
-    final vpn = FakeVpn(api)..connected = true;
-    await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
-    await tester.pumpAndSettle();
-    const codec = StandardMethodCodec();
-    final result = Completer<ByteData?>();
-    tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-      'netshield/linux_tray', codec.encodeMethodCall(const MethodCall('disconnectAndQuit')),
-      result.complete,
-    );
-    await tester.pumpAndSettle();
-    expect(codec.decodeEnvelope((await result.future)!), isNull);
-    expect(vpn.connected, isFalse);
-    expect(await vpn.isKillSwitchEnabled(), isFalse);
-  }, skip: !Platform.isLinux);
-  testWidgets('Closing everything reports disconnect errors and keeps the VPN intact', (tester) async {
-    final api = FakeApi();
-    final vpn = FakeVpn(api)..connected = true..failDisconnect = true;
-    await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
-    await tester.pumpAndSettle();
-    const codec = StandardMethodCodec();
-    final result = Completer<ByteData?>();
-    tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-      'netshield/linux_tray', codec.encodeMethodCall(const MethodCall('disconnectAndQuit')),
-      result.complete,
-    );
-    await tester.pumpAndSettle();
-    final envelope = await result.future;
-    expect(() => codec.decodeEnvelope(envelope!), throwsA(isA<PlatformException>()));
-    expect(vpn.connected, isTrue);
-  }, skip: !Platform.isLinux);
   testWidgets('Dashboard fits a phone-sized screen', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;

@@ -8,7 +8,7 @@ Source0:        netshield-rpm-input.tar.gz
 BuildArch:      x86_64
 # El paquete solo trae binarios ya compilados, sin fuentes para depurar.
 %global debug_package %{nil}
-Requires:       gtk3, NetworkManager, wireguard-tools, nftables, polkit, python3, iputils, hicolor-icon-theme, libnotify, libayatana-appindicator-gtk3
+Requires:       gtk3, NetworkManager, wireguard-tools, nftables, polkit, python3, iputils, hicolor-icon-theme, libnotify
 
 %description
 Cliente VPN de desarrollo con bloqueo de tráfico (killswitch),

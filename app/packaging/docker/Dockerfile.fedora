@@ -2,7 +2,7 @@
 # Compila la app con las librerías de Fedora 43.
 FROM fedora:43
 RUN dnf install -y \
-    clang cmake ninja-build pkg-config gtk3-devel libayatana-appindicator-gtk3-devel xz-devel \
+    clang cmake ninja-build pkg-config gtk3-devel xz-devel \
     git curl unzip zip file which rpm-build redhat-rpm-config \
  && dnf clean all
 ARG UID=1000
