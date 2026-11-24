@@ -17,8 +17,15 @@ TEST_RULE = 'alert dns any any -> any any (msg:"NETSHIELD MALWARE TEST simulated
 # (uid=0(root)) triggers it. It verifies detection over plain-HTTP browser
 # traffic through the tunnel. Appended unconditionally, like TEST_RULE,
 # because its message carries no category keyword, so the selector above
-# would otherwise drop it. Rule text copied verbatim from the ET Open source.
-ID_CHECK_RULE = 'alert ip any any -> any any (msg:"GPL ATTACK_RESPONSE id check returned root"; content:"uid=0|28|root|29|"; classtype:bad-unknown; sid:2100498; rev:7; metadata:created_at 2010_09_23, confidence Medium, signature_severity Informational, updated_at 2019_07_26;)'
+# would otherwise drop it.
+# NOTE: this is NOT verbatim ET Open text. The ET rule matches the raw TCP
+# stream (alert ip + content), which only sees the plaintext response.
+# Browsers send Accept-Encoding: gzip, so the server returns a gzipped body
+# and the plaintext pattern is hidden inside compressed bytes — the sensor
+# never fires for browser traffic. Using http.response_body makes Suricata
+# inspect the decompressed HTTP response body, so the same pattern matches
+# both plain (curl) and gzipped (browser) responses.
+ID_CHECK_RULE = 'alert http any any -> any any (msg:"GPL ATTACK_RESPONSE id check returned root"; http.response_body; content:"uid=0|28|root|29|"; classtype:bad-unknown; sid:2100498; rev:7; metadata:created_at 2010_09_23, confidence Medium, signature_severity Informational, updated_at 2019_07_26;)'
 
 
 def build(source_config, source_rules, output_dir, rule_limit=3000):
