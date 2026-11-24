@@ -59,15 +59,19 @@ def test_internal_ingest_requires_explicit_enable_and_validates_batch(monkeypatc
 def test_vpn_collector_keeps_phishing_and_command_control_alerts(tmp_path):
     path = tmp_path / 'eve.json'
     path.write_text(''.join(json.dumps(alert(name)) + '\n' for name in [
-        'ET PHISHING example', 'ET CNC example', 'ET MALWARE example', 'ET SCAN unrelated',
-        'GPL ATTACK_RESPONSE id check returned root']))
+        'ET PHISHING example', 'ET CNC example', 'ET MALWARE example', 'ET POLICY unrelated',
+        'GPL ATTACK_RESPONSE id check returned root',
+        'ET SCAN Amap TCP Service Scan Detected',
+        'ET DOS test', 'ET CURRENT_EVENTS test']))
     cursor = {'inode': path.stat().st_ino, 'offset': 0}
     _, old_feed = scan(path, cursor)
     _, vpn_feed = scan(path, cursor, include_network_threats=True)
     assert [item['alert']['signature'] for item in old_feed] == ['ET MALWARE example']
     assert [item['alert']['signature'] for item in vpn_feed] == [
         'ET PHISHING example', 'ET CNC example', 'ET MALWARE example',
-        'GPL ATTACK_RESPONSE id check returned root']
+        'GPL ATTACK_RESPONSE id check returned root',
+        'ET SCAN Amap TCP Service Scan Detected',
+        'ET DOS test', 'ET CURRENT_EVENTS test']
 
 
 def test_vpn_pending_log_is_replayed_after_delivery_failure(tmp_path, monkeypatch):

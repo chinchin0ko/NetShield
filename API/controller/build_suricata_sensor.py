@@ -6,7 +6,8 @@ import re
 from pathlib import Path
 import yaml
 
-CATEGORIES = ('MALWARE', 'TROJAN', 'EXPLOIT', 'CNC', 'PHISHING')
+CATEGORIES = ('MALWARE', 'TROJAN', 'EXPLOIT', 'CNC', 'PHISHING',
+              'SCAN', 'DOS', 'CURRENT_EVENTS')
 SIGNATURE = re.compile(r'\bmsg:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', re.I)
 SID = re.compile(r'\bsid:\s*(\d+)\s*;', re.I)
 # Select rules that can be evaluated independently of rules outside this subset.
@@ -28,7 +29,7 @@ TEST_RULE = 'alert dns any any -> any any (msg:"NETSHIELD MALWARE TEST simulated
 ID_CHECK_RULE = 'alert http any any -> any any (msg:"GPL ATTACK_RESPONSE id check returned root"; http.response_body; content:"uid=0|28|root|29|"; classtype:bad-unknown; sid:2100498; rev:7; metadata:created_at 2010_09_23, confidence Medium, signature_severity Informational, updated_at 2019_07_26;)'
 
 
-def build(source_config, source_rules, output_dir, rule_limit=3000):
+def build(source_config, source_rules, output_dir, rule_limit=6000):
     if not 1 <= rule_limit <= 10000:
         raise ValueError('invalid rule limit')
     config = yaml.safe_load(source_config.read_text())

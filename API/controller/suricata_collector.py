@@ -33,7 +33,7 @@ def relevant(line, *, include_network_threats=False):
         signature = alert.get('signature', '')
         if event.get('event_type') != 'alert' or not isinstance(signature, str):
             return None
-        labels = ('MALWARE', 'TROJAN', 'EXPLOIT', 'CNC', 'PHISHING') if include_network_threats else ('MALWARE', 'TROJAN', 'EXPLOIT')
+        labels = ('MALWARE', 'TROJAN', 'EXPLOIT', 'CNC', 'PHISHING', 'SCAN', 'DOS', 'CURRENT_EVENTS') if include_network_threats else ('MALWARE', 'TROJAN', 'EXPLOIT')
         is_id_check = include_network_threats and signature == ID_CHECK_SIGNATURE
         if not is_id_check and not any(re.search(r'\b' + label + r'\b', signature.upper()) for label in labels):
             return None
