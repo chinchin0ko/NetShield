@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
 import 'services/api_client.dart';
 import 'services/linux_vpn.dart';
@@ -9,6 +10,7 @@ import 'services/windows_vpn.dart';
 import 'services/android_push.dart';
 import 'services/desktop_notifications.dart';
 import 'screens/dashboard_panels.dart';
+import 'screens/vpn_map.dart';
 
 const cream = Color(0xFFdad7cd);
 const sage = Color(0xFFa3b18a);
@@ -646,7 +648,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
       body: DecoratedBox(
       decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFf2f1e9), cream, Color(0xFFc2ceaf), Color(0xFF879f7a)])),
       child: Stack(children: [
-        const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: AtmospherePainter()))),
+        const AnimatedAtmosphere(),
         SafeArea(child: LayoutBuilder(builder: (context, bounds) {
           // Fade between the login screen and the dashboard instead of
           // swapping them instantly.
@@ -789,6 +791,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
     Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null && !Platform.isAndroid ? 'Comprobando la conexión con el servidor VPN.' : (dnsHealthy == false ? 'El DNS de la VPN no respondió a la prueba.' : (internetHealthy == false ? 'La prueba de Internet no respondió; algunas redes bloquean este tipo de comprobación.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar tu VPN.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF55655b), fontSize: 15, height: 1.4))),
     const SizedBox(height: 30),
     SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: vpnConnected ? const Color(0xffa6433a) : forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked && !Platform.isAndroid ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
+    if (!Platform.isAndroid) ...[const SizedBox(height: 16), VpnMapCard(connected: vpnConnected)],
     const SizedBox(height: 12), Center(child: TextButton.icon(onPressed: vpnLoading ? null : manageDevices, icon: const Icon(Icons.devices_rounded, size: 17), label: const Text('Administrar dispositivos'), style: TextButton.styleFrom(foregroundColor: forest))),
     Center(child: TextButton.icon(onPressed: vpnLoading ? null : signOut, icon: const Icon(Icons.logout_rounded, size: 17), label: const Text('Cerrar sesión'), style: TextButton.styleFrom(foregroundColor: forest))),
   ]);
@@ -884,15 +887,56 @@ class HeroOrb extends StatelessWidget {
   @override Widget build(BuildContext context) => Container(width: 195, height: 195, decoration: BoxDecoration(shape: BoxShape.circle, gradient: const RadialGradient(center: Alignment(-.4, -.6), radius: 1.3, colors: [Color(0xFFfbfff3), Color(0xFFd6e9ce), Color(0xFF8daf8a), Color(0xFF5d8567)]), border: Border.all(color: Colors.white.withValues(alpha: .78), width: 2), boxShadow: [BoxShadow(color: forest.withValues(alpha: .25), blurRadius: 28, offset: const Offset(0, 12)), const BoxShadow(color: Colors.white54, blurRadius: 12, offset: Offset(-4, -5))]), child: Center(child: Container(width: 112, height: 112, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: .2), border: Border.all(color: Colors.white.withValues(alpha: .5))), child: const Icon(Icons.shield_rounded, size: 72, color: Color(0xFFeaf4e4)))));
 }
 
+/// Soft background bubbles. `progress` (0..1, loops) drifts them slowly.
+/// Desktop only: the painter is only used in the desktop scaffold, and the
+/// animation stays off under `flutter test` so widget tests keep settling.
 class AtmospherePainter extends CustomPainter {
-  const AtmospherePainter();
+  const AtmospherePainter({this.progress = 0});
+  final double progress;
   @override void paint(Canvas canvas, Size size) {
+    final t = progress * 2 * math.pi;
     final paint = Paint()..color = Colors.white.withValues(alpha: .18);
-    canvas.drawCircle(Offset(size.width * .08, size.height * .18), 120, paint);
-    canvas.drawCircle(Offset(size.width * .91, size.height * .84), 170, paint);
+    canvas.drawCircle(Offset(size.width * .08 + math.sin(t) * 14, size.height * .18 + math.cos(t * .7) * 10), 120, paint);
+    canvas.drawCircle(Offset(size.width * .91 + math.cos(t * .8) * 16, size.height * .84 + math.sin(t * .6) * 12), 170, paint);
     final stroke = Paint()..color = Colors.white.withValues(alpha: .3)..style = PaintingStyle.stroke..strokeWidth = 2;
-    canvas.drawCircle(Offset(size.width * .83, size.height * .12), 42, stroke);
-    canvas.drawCircle(Offset(size.width * .13, size.height * .82), 22, stroke);
+    canvas.drawCircle(Offset(size.width * .83 + math.sin(t * 1.1) * 10, size.height * .12 + math.cos(t) * 8), 42, stroke);
+    canvas.drawCircle(Offset(size.width * .13 + math.cos(t * .9) * 8, size.height * .82 + math.sin(t * 1.2) * 8), 22, stroke);
   }
-  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  @override bool shouldRepaint(covariant AtmospherePainter oldDelegate) => progress != oldDelegate.progress;
+}
+
+/// Drives the background bubbles with a slow ambient loop (desktop only).
+/// Under `flutter test` it renders the static bubbles so tests keep settling.
+class AnimatedAtmosphere extends StatefulWidget {
+  const AnimatedAtmosphere({super.key});
+  @override
+  State<AnimatedAtmosphere> createState() => _AnimatedAtmosphereState();
+}
+
+class _AnimatedAtmosphereState extends State<AnimatedAtmosphere> with SingleTickerProviderStateMixin {
+  AnimationController? _controller;
+  @override
+  void initState() {
+    super.initState();
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      _controller = AnimationController(vsync: this, duration: const Duration(seconds: 36))..repeat();
+    }
+  }
+  @override
+  void dispose() { _controller?.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    if (controller == null) {
+      return const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: AtmospherePainter())));
+    }
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) => CustomPaint(painter: AtmospherePainter(progress: controller.value)),
+        ),
+      ),
+    );
+  }
 }

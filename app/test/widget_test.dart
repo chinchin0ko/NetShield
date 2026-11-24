@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:netshield_app/main.dart';
 import 'package:netshield_app/screens/dashboard_panels.dart';
 import 'package:netshield_app/screens/skeleton.dart';
+import 'package:netshield_app/screens/vpn_map.dart';
 import 'package:netshield_app/services/api_client.dart';
 import 'package:netshield_app/services/linux_vpn.dart';
 import 'package:netshield_app/services/desktop_notifications.dart';
@@ -373,6 +374,8 @@ void main() {
     await tester.tap(find.text('Desconectar'));
     await tester.pumpAndSettle();
     expect(find.text('Desconectado'), findsOneWidget);
+    await tester.ensureVisible(find.text('Cerrar sesión'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Cerrar sesión'));
     await tester.pumpAndSettle();
     expect(find.text('Qué gusto verte'), findsOneWidget);
@@ -455,6 +458,30 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Alertas y amenazas'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Desktop home shows the animated VPN map of Queretaro', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api)));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    expect(find.byType(VpnMapCard), findsOneWidget);
+    expect(find.text('Querétaro, México'), findsOneWidget);
+    expect(find.text('Tu ubicación VPN'), findsOneWidget);
+    expect(find.text('Desconectado'), findsOneWidget);
+    expect(find.text('En espera'), findsOneWidget);
+    expect(find.byType(AnimatedAtmosphere), findsOneWidget);
+    await tester.tap(find.text('Conectar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Conectado'), findsOneWidget);
+    expect(find.text('En línea'), findsOneWidget);
+    expect(find.byType(VpnMapCard), findsOneWidget);
   });
 
   testWidgets('Login fades into the dashboard instead of swapping instantly', (tester) async {
