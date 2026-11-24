@@ -27,6 +27,16 @@ TEST_RULE = 'alert dns any any -> any any (msg:"NETSHIELD MALWARE TEST simulated
 # inspect the decompressed HTTP response body, so the same pattern matches
 # both plain (curl) and gzipped (browser) responses.
 ID_CHECK_RULE = 'alert http any any -> any any (msg:"GPL ATTACK_RESPONSE id check returned root"; http.response_body; content:"uid=0|28|root|29|"; classtype:bad-unknown; sid:2100498; rev:7; metadata:created_at 2010_09_23, confidence Medium, signature_severity Informational, updated_at 2019_07_26;)'
+# Curated ATTACK_RESPONSE rules appended verbatim (like TEST_RULE and
+# ID_CHECK_RULE). The whole ATTACK_RESPONSE category cannot be selected:
+# it breaks `suricata -T` (silent rc=1) when combined with the other
+# categories, and even a 100-rule subset fails. A 20-rule subset of the
+# simplest rules (no `bsize`, no `pcre`) validates fine, so these 20 are
+# pinned by SID. If ET Open drops one, it is skipped silently.
+EXTRA_SIDS = (2009245, 2000499, 2000500, 2000501, 2000502, 2000503,
+              2000504, 2000505, 2000506, 2000507, 2000508, 2002809,
+              2002810, 2002811, 2009210, 2009211, 2009579, 2006417,
+              2007725, 2007726)
 
 
 def build(source_config, source_rules, output_dir, rule_limit=6000):
@@ -37,16 +47,19 @@ def build(source_config, source_rules, output_dir, rule_limit=6000):
         raise ValueError('invalid Suricata configuration')
     categories = {name: [] for name in CATEGORIES}
     seen = set()
+    extra_by_sid = {}
     for rule in source_rules.read_text(errors='strict').splitlines():
         if not rule.startswith('alert ') or STATE_DEPENDENCY.search(rule):
             continue
         message, sid = SIGNATURE.search(rule), SID.search(rule)
         if not message or not sid:
             continue
+        value = int(sid.group(1))
+        if value in EXTRA_SIDS and value not in extra_by_sid:
+            extra_by_sid[value] = rule
         match = re.search(r'\b(' + '|'.join(CATEGORIES) + r')\b', message.group(1), re.I)
         if not match:
             continue
-        value = int(sid.group(1))
         if value == 9900099 or value in seen:
             raise ValueError('duplicate or reserved rule SID')
         seen.add(value)
@@ -64,14 +77,16 @@ def build(source_config, source_rules, output_dir, rule_limit=6000):
             break
     if not chosen:
         raise ValueError('no matching rules')
+    extras = [extra_by_sid[sid] for sid in EXTRA_SIDS
+              if sid in extra_by_sid and sid not in seen]
     output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    (output_dir / 'rules.rules').write_text('\n'.join(chosen + [TEST_RULE, ID_CHECK_RULE]) + '\n')
+    (output_dir / 'rules.rules').write_text('\n'.join(chosen + extras + [TEST_RULE, ID_CHECK_RULE]) + '\n')
     config['outputs'] = [{'eve-log': {'enabled': True, 'filetype': 'regular',
                                       'filename': 'eve.json', 'types': [{'alert': {'payload': False, 'packet': False}}, {'stats': {'totals': True, 'threads': False, 'deltas': False}}]}}]
     config['stats'] = {'enabled': True, 'interval': 30}
     config['threading'] = {'set-cpu-affinity': False}
     (output_dir / 'suricata.yaml').write_text('%YAML 1.1\n---\n' + yaml.safe_dump(config, sort_keys=False))
-    return len(chosen)
+    return len(chosen) + len(extras)
 
 
 if __name__ == '__main__':

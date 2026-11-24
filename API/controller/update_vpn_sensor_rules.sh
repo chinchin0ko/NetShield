@@ -27,7 +27,7 @@ printf '{}\n' > "$work/update.yaml"
 timeout 180 suricata-update -c "$work/update.yaml" -D "$work/data" -o "$work/output" --etopen --no-test --no-reload
 python3 "$builder" "$config" "$work/output/suricata.rules" "$work/candidate"
 count=$(grep -c '^alert ' "$work/candidate/rules.rules")
-(( count >= 1000 && count <= 6002 )) || { echo 'Unexpected number of rules.' >&2; exit 1; }
+(( count >= 1000 && count <= 6022 )) || { echo 'Unexpected number of rules.' >&2; exit 1; }
 timeout 600 suricata -T --init-errors-fatal -c "$config" -S "$work/candidate/rules.rules" -l "$work" --runmode single
 if cmp -s "$live" "$work/candidate/rules.rules"; then
   echo 'Rules are unchanged and validated.'
