@@ -182,13 +182,13 @@ void main() {
     await tester.tap(find.text('Ajustes'));
     await tester.pumpAndSettle();
     expect(find.text('Kill Switch'), findsOneWidget);
-    await tester.tap(find.byType(Switch));
+    await tester.tap(find.byType(Switch).first);
     await tester.pumpAndSettle();
     expect(vpn.lockOverride, isNull);
     await tester.tap(find.text('Desactivar').last);
     await tester.pumpAndSettle();
     expect(vpn.lockOverride, isFalse);
-    await tester.tap(find.byType(Switch));
+    await tester.tap(find.byType(Switch).first);
     await tester.pumpAndSettle();
     expect(vpn.lockOverride, isTrue);
     await tester.tap(find.text('Consumo'));

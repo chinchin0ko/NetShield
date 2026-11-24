@@ -18,6 +18,32 @@ class LinuxVpn {
   Future<String> deviceId() => _deviceId();
   Future<bool> isKillSwitchEnabled() => File('/run/netshield-lock/active').exists();
 
+  /// Whether the user allowed inbound SSH while the traffic lock is active
+  /// (Ajustes > Permitir conexiones SSH, desktop only). Off by default: the
+  /// exception deliberately weakens the lock, so it is opt-in.
+  Future<File> _sshSettingFile() async {
+    final home = Platform.environment['HOME'];
+    if (home == null) throw const ApiException('No se encontró tu carpeta personal.');
+    return File('$home/.local/share/netshield/allow-ssh');
+  }
+
+  Future<bool> isSshAllowed() async {
+    try {
+      final file = await _sshSettingFile();
+      if (!await file.exists()) return false;
+      return (await file.readAsString()).trim() == '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> setSshAllowed(bool allowed) async {
+    final file = await _sshSettingFile();
+    await file.parent.create(recursive: true);
+    await file.writeAsString(allowed ? '1' : '0', flush: true);
+    await Process.run('chmod', ['600', file.path]);
+  }
+
   Future<File> _endpointFile() async {
     final home = Platform.environment['HOME'];
     if (home == null) throw const ApiException('No se encontró tu carpeta personal.');
@@ -36,7 +62,9 @@ class LinuxVpn {
     final endpoint = (await file.readAsString()).trim();
     if (InternetAddress.tryParse(endpoint)?.type != InternetAddressType.IPv4) throw const ApiException('La dirección del servidor VPN es inválida.');
     final id = await _deviceId();
-    await _switch(['enable', 'ns${id.substring(0, 12)}', endpoint]);
+    final args = ['enable', 'ns${id.substring(0, 12)}', endpoint];
+    if (await isSshAllowed()) args.add('allow-ssh');
+    await _switch(args);
   }
 
   /// Check the VPN gateway through this device's interface. A timeout or
@@ -262,7 +290,9 @@ class LinuxVpn {
     final temp = await Directory.systemTemp.createTemp('netshield-');
     try {
       await _keepDevelopmentTunnel(config);
-      await _switch(['enable', name, endpoint]);
+      final args = ['enable', name, endpoint];
+      if (await isSshAllowed()) args.add('allow-ssh');
+      await _switch(args);
       final file = File('${temp.path}/$name.conf');
       await file.writeAsString(config, flush: true);
       await Process.run('chmod', ['600', file.path]);

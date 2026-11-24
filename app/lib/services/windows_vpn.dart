@@ -85,6 +85,25 @@ class WindowsVpn extends LinuxVpn {
   Future<File> _routeFile() async =>
       File('${(await _appDir()).path}\\management-route.json');
 
+  /// The SSH exception setting lives under %APPDATA%\NetShield on Windows
+  /// (Linux uses ~/.local/share/netshield). See LinuxVpn for the meaning.
+  @override
+  Future<bool> isSshAllowed() async {
+    try {
+      final file = File('${(await _appDir()).path}\\allow-ssh');
+      if (!await file.exists()) return false;
+      return (await file.readAsString()).trim() == '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<void> setSshAllowed(bool allowed) async {
+    final file = File('${(await _appDir()).path}\\allow-ssh');
+    await file.writeAsString(allowed ? '1' : '0', flush: true);
+  }
+
   // -- WireGuard for Windows detection. -------------------------------------
 
   Future<String> _wireguardExe() async {
@@ -217,21 +236,67 @@ class WindowsVpn extends LinuxVpn {
 
   static const _rulePrefix = 'NetShield Killswitch';
 
+  /// Tailscale controlplane + DERP nodes (IPv4), fetched from the DERP map
+  /// on 2026-11-22. Only used when the SSH exception is explicitly enabled
+  /// (Ajustes > Permitir conexiones SSH).
+  static const _tailscaleInfraIps = <String>[
+    '102.67.165.185', '102.67.165.36', '102.67.165.90', '102.67.167.188',
+    '102.67.167.245', '102.67.167.37', '103.6.84.152', '157.180.28.32',
+    '162.248.221.199', '162.248.221.215', '162.248.221.248', '167.235.72.200',
+    '172.105.166.103', '172.105.169.57', '172.105.179.230', '172.236.162.33',
+    '172.236.162.40', '172.236.162.42', '172.237.28.183', '172.237.61.190',
+    '172.237.61.194', '172.237.61.197', '172.237.66.30', '172.237.72.43',
+    '172.237.72.79', '172.237.72.8', '172.238.6.179', '172.238.6.180',
+    '172.238.6.34', '176.58.88.183', '176.58.90.104', '176.58.90.147',
+    '176.58.90.207', '176.58.92.144', '176.58.92.254', '176.58.93.147',
+    '176.58.93.154', '176.58.93.248', '178.156.134.232', '178.156.152.106',
+    '178.156.152.91', '185.178.202.101', '185.178.202.33', '185.34.3.207',
+    '185.34.3.232', '185.34.3.75', '185.40.234.113', '185.40.234.176',
+    '185.40.234.219', '185.40.234.53', '185.40.234.77', '192.73.240.121',
+    '192.73.240.132', '192.73.240.161', '192.73.242.187', '192.73.242.204',
+    '192.73.242.28', '192.73.243.135', '192.73.243.141', '192.73.243.229',
+    '192.73.244.245', '192.73.248.83', '192.73.252.134', '192.73.252.65',
+    '198.18.186.205', '199.38.181.103', '199.38.181.104', '199.38.181.71',
+    '199.38.181.93', '199.38.182.118', '205.147.105.30', '205.147.105.78',
+    '208.111.34.178', '208.111.40.12', '208.111.40.216', '208.72.155.133',
+    '208.83.233.233', '208.83.234.151', '209.177.145.118', '209.177.145.120',
+    '209.177.156.197', '209.177.156.94', '209.177.158.15', '209.177.158.246',
+    '45.159.97.144', '45.159.97.233', '45.159.97.61', '45.159.98.145',
+    '45.159.98.196', '45.159.98.253', '46.62.141.44', '49.12.193.137',
+    '49.13.204.141', '5.161.218.233', '65.109.143.62', '95.217.2.165',
+  ];
+
   @override
   Future<bool> isKillSwitchEnabled() async =>
       File('${(await _appDir()).path}\\lock\\active.json').exists();
 
-  Future<void> _enableKillswitch(String tunnel, String endpoint) async {
+  Future<void> _enableKillswitch(String tunnel, String endpoint,
+      {bool allowSsh = false}) async {
     final lock = await _lockFile();
-    await _elevatedOrThrow([
+    final commands = <String>[
       'Remove-NetFirewallRule -DisplayName "$_rulePrefix*" -ErrorAction SilentlyContinue',
       'Set-NetFirewallProfile -Profile Domain,Private,Public -DefaultOutboundAction Block',
       'New-NetFirewallRule -DisplayName "$_rulePrefix (tunel)" -Direction Outbound -Action Allow -InterfaceAlias "$tunnel" -Profile Any | Out-Null',
       'New-NetFirewallRule -DisplayName "$_rulePrefix (servidor)" -Direction Outbound -Action Allow -Protocol UDP -RemotePort 51820 -RemoteAddress $endpoint -Profile Any | Out-Null',
       'New-NetFirewallRule -DisplayName "$_rulePrefix (DHCP)" -Direction Outbound -Action Allow -Protocol UDP -LocalPort 68 -RemotePort 67 -Profile Any | Out-Null',
-    ], 'No se pudo activar el bloqueo de tráfico. Revisa la autorización de administrador.');
+    ];
+    if (allowSsh) {
+      // SSH exception (opt-in, Ajustes > Permitir conexiones SSH): Tailscale
+      // carries the inbound SSH session, so its interface, its WireGuard UDP
+      // port and TCP 443 to its infrastructure must be allowed.
+      final infra = _tailscaleInfraIps.join(',');
+      commands.add(
+          'New-NetFirewallRule -DisplayName "$_rulePrefix (SSH)" -Direction Outbound -Action Allow -InterfaceAlias "Tailscale" -Profile Any | Out-Null');
+      commands.add(
+          'New-NetFirewallRule -DisplayName "$_rulePrefix (SSH UDP)" -Direction Outbound -Action Allow -Protocol UDP -RemotePort 41641 -Profile Any | Out-Null');
+      commands.add(
+          'New-NetFirewallRule -DisplayName "$_rulePrefix (SSH TCP)" -Direction Outbound -Action Allow -Protocol TCP -RemotePort 443 -RemoteAddress $infra -Profile Any | Out-Null');
+    }
+    await _elevatedOrThrow(commands,
+        'No se pudo activar el bloqueo de tráfico. Revisa la autorización de administrador.');
     await lock.writeAsString(
-        jsonEncode({'tunnel': tunnel, 'endpoint': endpoint}),
+        jsonEncode(
+            {'tunnel': tunnel, 'endpoint': endpoint, 'allow_ssh': allowSsh}),
         flush: true);
   }
 
@@ -265,7 +330,8 @@ class WindowsVpn extends LinuxVpn {
       throw const ApiException('La dirección del servidor VPN es inválida.');
     }
     final id = await deviceId();
-    await _enableKillswitch(tunnelName(id), endpoint);
+    await _enableKillswitch(tunnelName(id), endpoint,
+        allowSsh: await isSshAllowed());
   }
 
   // -- Tunnel (WireGuard for Windows service). ------------------------------
@@ -390,7 +456,8 @@ class WindowsVpn extends LinuxVpn {
       await _keepDevelopmentTunnel(config);
       // Enable the lock first, like on Linux, so no traffic leaks
       // while the tunnel comes up.
-      await _enableKillswitch(tunnel, endpoint);
+      await _enableKillswitch(tunnel, endpoint,
+          allowSsh: await isSshAllowed());
       killswitchOn = true;
       await _elevatedOrThrow([
         'Start-Process -FilePath "$wireguardExe" -ArgumentList "/installtunnelservice", "${configFile.path}" -Verb RunAs -Wait',
