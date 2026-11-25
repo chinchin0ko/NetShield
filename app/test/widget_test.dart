@@ -26,7 +26,12 @@ class FakeVpn extends LinuxVpn {
   @override
   Future<bool?> gatewayReachable() async => gatewayResult;
   bool? lockOverride;
+  bool tcpModeOverride = false;
   String? connectedAccount;
+  @override
+  Future<bool> isTcpMode() async => tcpModeOverride;
+  @override
+  Future<void> setTcpMode(bool enabled) async { tcpModeOverride = enabled; }
   @override
   Future<String> deviceId() async => 'a' * 32;
   @override
@@ -199,6 +204,29 @@ void main() {
     await tester.tap(find.text('Posible falso positivo'));
     await tester.pumpAndSettle();
     expect(find.text('Marcada como posible falso positivo'), findsOneWidget);
+  });
+
+  testWidgets('Settings shows the TCP mode toggle on desktop', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    final vpn = FakeVpn(api);
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ajustes'));
+    await tester.pumpAndSettle();
+    expect(find.text('Modo TCP'), findsOneWidget);
+    expect(find.text('Para redes que bloquean UDP'), findsOneWidget);
+    expect(vpn.tcpModeOverride, isFalse);
+    // Switches on Ajustes (desktop): Kill Switch, SSH, TCP mode.
+    await tester.tap(find.byType(Switch).at(2));
+    await tester.pumpAndSettle();
+    expect(vpn.tcpModeOverride, isTrue);
   });
 
   testWidgets('Navigation stays fixed while only dashboard content scrolls', (tester) async {

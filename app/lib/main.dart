@@ -62,6 +62,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   bool register = false, loading = false, hidePassword = true;
   bool vpnConnected = false, vpnLoading = false, trafficBlocked = false;
   bool sshAllowed = false;
+  bool tcpMode = false;
   bool connectionTransition = false;
   bool gatewayChecking = false;
   bool? gatewayHealthy;
@@ -146,6 +147,9 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
     if (!Platform.isAndroid) {
       vpn.isSshAllowed().then((allowed) {
         if (mounted) setState(() => sshAllowed = allowed);
+      }).catchError((_) {});
+      (vpn as dynamic).isTcpMode().then((enabled) {
+        if (mounted) setState(() => tcpMode = enabled);
       }).catchError((_) {});
     }
   }
@@ -402,7 +406,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   /// The four dashboard sections, shared by the desktop layout and the
   /// Android layout below. Only the navigation around them changes.
   Widget _dashboardPage() => switch (page) {
-    1 => SettingsPanel(android: Platform.isAndroid, pushActive: pushActive, connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices, sshAllowed: sshAllowed, onSshSwitch: Platform.isAndroid ? null : changeSshAllowed),
+    1 => SettingsPanel(android: Platform.isAndroid, pushActive: pushActive, connected: vpnConnected, blocked: trafficBlocked, busy: vpnLoading, onSwitch: changeKillSwitch, onDevices: manageDevices, sshAllowed: sshAllowed, onSshSwitch: Platform.isAndroid ? null : changeSshAllowed, tcpMode: tcpMode, onTcpSwitch: Platform.isAndroid ? null : changeTcpMode),
     2 => UsagePanel(connected: vpnConnected, usage: usage, loading: usageLoading, serverUsage: serverUsage, serverUnavailable: serverUsageUnavailable, history: usageHistory, historyUnavailable: historyUnavailable),
     3 => AlertsPanel(alerts: alerts, monitoring: alertMonitoring, loading: alertsLoading, busy: alertsLoading || alertsChecking, error: alertsError, onRefresh: () => refreshAlerts(), onReview: reviewAlert, newAlerts: unseenAlertIds.length, onAcknowledge: () => setState(() => unseenAlertIds.clear())),
     _ => homePanel(),
@@ -575,6 +579,39 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
       if (mounted) setState(() => error = 'No se pudo guardar el ajuste de SSH.');
+    } finally {
+      try {
+        final blocked = await vpn.isKillSwitchEnabled();
+        if (mounted) setState(() => trafficBlocked = blocked);
+      } catch (_) { /* Preserve the last known state. */ }
+      if (mounted) setState(() => vpnLoading = false);
+    }
+  }
+
+  /// Toggle "Modo TCP" (desktop only). Se guarda y se aplica al volver a
+  /// conectar la VPN. Si el bloqueo esta activo, se reaplica para incluir
+  /// la excepcion TCP 80 al servidor.
+  Future<void> changeTcpMode(bool enabled) async {
+    if (vpnLoading) return;
+    setState(() { vpnLoading = true; error = null; });
+    try {
+      await (vpn as dynamic).setTcpMode(enabled);
+      if (mounted) setState(() => tcpMode = enabled);
+      if (trafficBlocked) {
+        try {
+          await vpn.setKillSwitch(false);
+          await vpn.setKillSwitch(true);
+        } catch (_) {
+          if (mounted) {
+            setState(() => error =
+                'El ajuste se guardó, pero no se pudo reaplicar el bloqueo ahora. Se aplicará la próxima vez que se active.');
+          }
+        }
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => error = 'No se pudo guardar el ajuste de modo TCP.');
     } finally {
       try {
         final blocked = await vpn.isKillSwitchEnabled();

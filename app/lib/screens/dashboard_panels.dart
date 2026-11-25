@@ -33,10 +33,11 @@ class SoftCard extends StatelessWidget {
 }
 
 class SettingsPanel extends StatelessWidget {
-  const SettingsPanel({super.key, this.android = false, this.pushActive = false, required this.connected, required this.blocked, required this.busy, required this.onSwitch, required this.onDevices, this.sshAllowed = false, this.onSshSwitch});
-  final bool android, pushActive, connected, blocked, busy, sshAllowed;
+  const SettingsPanel({super.key, this.android = false, this.pushActive = false, required this.connected, required this.blocked, required this.busy, required this.onSwitch, required this.onDevices, this.sshAllowed = false, this.onSshSwitch, this.tcpMode = false, this.onTcpSwitch});
+  final bool android, pushActive, connected, blocked, busy, sshAllowed, tcpMode;
   final ValueChanged<bool> onSwitch;
   final ValueChanged<bool>? onSshSwitch;
+  final ValueChanged<bool>? onTcpSwitch;
   final VoidCallback onDevices;
   @override
   Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -56,6 +57,13 @@ class SettingsPanel extends StatelessWidget {
         Switch(value: sshAllowed, activeThumbColor: _green, onChanged: busy ? null : onSshSwitch)]),
       const SizedBox(height: 13), const Text('Permite conexiones SSH entrantes mientras la VPN está activa, para administrar este equipo de forma remota.', style: TextStyle(color: _muted, fontSize: 14, height: 1.45)),
       const SizedBox(height: 8), const Text('Advertencia: esto debilita el bloqueo de tráfico, porque abre una salida que no pasa por el túnel VPN. Actívalo solo si lo necesitas.', style: TextStyle(color: Color(0xff9c6644), fontSize: 14, height: 1.45)),
+    ]))],
+    if (!android && onTcpSwitch != null) ...[const SizedBox(height: 14), SoftCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: const Color(0xffe1ead9), borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.swap_horiz_rounded, color: _green, size: 22)),
+        const SizedBox(width: 12), const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Modo TCP', style: TextStyle(color: _ink, fontSize: 16, fontWeight: FontWeight.w800)), SizedBox(height: 3), Text('Para redes que bloquean UDP', style: TextStyle(color: _muted, fontSize: 13))])),
+
+        Switch(value: tcpMode, activeThumbColor: _green, onChanged: busy ? null : onTcpSwitch)]),
+      const SizedBox(height: 13), const Text('Lleva la VPN por TCP 80 en vez de UDP, para redes (como la universidad) que bloquean todo el UDP. Se aplica al volver a conectar.', style: TextStyle(color: _muted, fontSize: 14, height: 1.45)),
     ]))],
     if (android) ...[const SizedBox(height: 14), SoftCard(child: Text(pushActive ? 'Dispositivo registrado para notificaciones push.' : 'Notificaciones push no disponibles; revisa los permisos y la configuración del servicio.', style: const TextStyle(color: _muted, fontSize: 14)))],
     const SizedBox(height: 14), SoftCard(child: InkWell(onTap: busy ? null : onDevices, borderRadius: BorderRadius.circular(12), child: const Row(children: [Icon(Icons.devices_rounded, color: _green), SizedBox(width: 13), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Dispositivos', style: TextStyle(color: _ink, fontWeight: FontWeight.w800, fontSize: 14)), SizedBox(height: 3), Text('Consulta y revoca accesos', style: TextStyle(color: _muted, fontSize: 13))])), Icon(Icons.chevron_right_rounded, color: _green)]))),

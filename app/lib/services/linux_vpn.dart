@@ -14,6 +14,11 @@ class LinuxVpn {
   LinuxVpn(this.api);
   final ApiClient api;
   String? _connection;
+  Process? _wstunnel;
+  // Local UDP port where the wstunnel client listens in TCP mode. The
+  // WireGuard endpoint is rewritten to it, so packets go through the
+  // WebSocket tunnel on TCP 80 instead of UDP (blocked on some networks).
+  static const _wstunnelLocalPort = 51821;
 
   Future<String> deviceId() => _deviceId();
   Future<bool> isKillSwitchEnabled() => File('/run/netshield-lock/active').exists();
@@ -44,6 +49,87 @@ class LinuxVpn {
     await Process.run('chmod', ['600', file.path]);
   }
 
+  /// TCP mode (wstunnel): carry WireGuard over a WebSocket on TCP 80 when
+  /// the network blocks all UDP. Off by default; the user enables it in
+  /// Ajustes. The setting applies on the next connection.
+  Future<File> _tcpModeFile() async {
+    final home = Platform.environment['HOME'];
+    if (home == null) throw const ApiException('No se encontró tu carpeta personal.');
+    return File('$home/.local/share/netshield/tcp-mode');
+  }
+
+  Future<bool> isTcpMode() async {
+    try {
+      final file = await _tcpModeFile();
+      if (!await file.exists()) return false;
+      return (await file.readAsString()).trim() == '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> setTcpMode(bool enabled) async {
+    final file = await _tcpModeFile();
+    await file.parent.create(recursive: true);
+    await file.writeAsString(enabled ? '1' : '0', flush: true);
+    await Process.run('chmod', ['600', file.path]);
+  }
+
+  /// Locate the wstunnel client binary: user install first, then the
+  /// packaged one, then anything on PATH.
+  Future<String?> _wstunnelPath() async {
+    final home = Platform.environment['HOME'];
+    final candidates = <String>[
+      if (home != null) '$home/.local/share/netshield/wstunnel',
+      '/usr/lib/netshield/wstunnel',
+      '/usr/local/bin/wstunnel',
+    ];
+    for (final candidate in candidates) {
+      if (await File(candidate).exists()) return candidate;
+    }
+    final which = await Process.run('which', ['wstunnel']);
+    if (which.exitCode == 0) {
+      final found = which.stdout.toString().trim();
+      if (found.isNotEmpty) return found;
+    }
+    return null;
+  }
+
+  /// Start the wstunnel client (no root needed: it only listens on a
+  /// localhost UDP port and connects out to TCP 80). The server side is
+  /// The server side is ws://HOST:80/wstunnel, restricted to the WireGuard port.
+  Future<void> _startWstunnel() async {
+    await _stopWstunnel();
+    final binary = await _wstunnelPath();
+    if (binary == null) {
+      throw const ApiException('Falta el cliente wstunnel. Instala NetShield con el modo TCP o coloca el binario en ~/.local/share/netshield/wstunnel.');
+    }
+    final host = api.baseUrl.host;
+    final process = await Process.start(binary, [
+      'client',
+      '-L',
+      'udp://127.0.0.1:$_wstunnelLocalPort:127.0.0.1:443?timeout_sec=0',
+      'ws://$host:80/wstunnel',
+    ]);
+    _wstunnel = process;
+    // Give the client a moment to open its UDP listener before WireGuard
+    // starts sending handshakes to it. If it fails to start, the WireGuard
+    // handshake below fails and reports it.
+    await Future<void>.delayed(const Duration(seconds: 2));
+  }
+
+  Future<void> _stopWstunnel() async {
+    final process = _wstunnel;
+    _wstunnel = null;
+    if (process == null) return;
+    process.kill(ProcessSignal.sigterm);
+    try {
+      await process.exitCode.timeout(const Duration(seconds: 3));
+    } catch (_) {
+      process.kill(ProcessSignal.sigkill);
+    }
+  }
+
   Future<File> _endpointFile() async {
     final home = Platform.environment['HOME'];
     if (home == null) throw const ApiException('No se encontró tu carpeta personal.');
@@ -64,6 +150,7 @@ class LinuxVpn {
     final id = await _deviceId();
     final args = ['enable', 'ns${id.substring(0, 12)}', endpoint];
     if (await isSshAllowed()) args.add('allow-ssh');
+    if (await isTcpMode()) args.add('tcp-mode');
     await _switch(args);
   }
 
@@ -290,11 +377,23 @@ class LinuxVpn {
     final temp = await Directory.systemTemp.createTemp('netshield-');
     try {
       await _keepDevelopmentTunnel(config);
+      final tcpMode = await isTcpMode();
+      var effectiveConfig = config;
+      if (tcpMode) {
+        await _startWstunnel();
+        // Point WireGuard at the local wstunnel listener instead of the
+        // server: packets go UDP -> wstunnel -> WebSocket/TCP 80 -> server.
+        effectiveConfig = config.replaceFirst(
+          RegExp(r'^Endpoint\s*=\s*[0-9.]+:\d+\s*$', multiLine: true),
+          'Endpoint = 127.0.0.1:$_wstunnelLocalPort',
+        );
+      }
       final args = ['enable', name, endpoint];
       if (await isSshAllowed()) args.add('allow-ssh');
+      if (tcpMode) args.add('tcp-mode');
       await _switch(args);
       final file = File('${temp.path}/$name.conf');
-      await file.writeAsString(config, flush: true);
+      await file.writeAsString(effectiveConfig, flush: true);
       await Process.run('chmod', ['600', file.path]);
       // Only replace profiles created by this application for this device.
       await _nm(['connection', 'delete', 'id', name], check: false);
@@ -315,6 +414,7 @@ class LinuxVpn {
       final ping = await Process.run('ping', ['-4', '-c', '1', '-W', '5', '10.8.0.1']).timeout(const Duration(seconds: 8));
       if (ping.exitCode != 0) throw const ApiException('No hubo respuesta a través del túnel VPN.');
     } catch (_) {
+      await _stopWstunnel();
       if (!await isKillSwitchEnabled()) await _removeManagementRoute();
       rethrow;
     } finally {
@@ -326,6 +426,7 @@ class LinuxVpn {
     final id = await _deviceId();
     final name = _connection ?? 'ns${id.substring(0, 12)}';
     await _nm(['connection', 'delete', 'id', name], check: false);
+    await _stopWstunnel();
     if (await isConnected()) {
       throw const ApiException('No se pudo desconectar la VPN.');
     }

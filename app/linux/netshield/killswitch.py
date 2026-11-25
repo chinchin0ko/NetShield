@@ -7,6 +7,11 @@ usual desktop setup): the Tailscale interface, Tailscale's WireGuard UDP
 port, and TCP 443 to Tailscale's controlplane / DERP infrastructure. This is
 opt-in and off by default: it deliberately weakens the lock, so the app only
 enables it when the user turns on "Permitir conexiones SSH" in Ajustes.
+
+Optional TCP mode: `enable <iface> <endpoint> tcp-mode` also permits TCP 80
+to the VPN server, so the wstunnel client can carry WireGuard over a
+WebSocket on TCP 80 when the network blocks all UDP. Both flags may be
+combined: `enable <iface> <endpoint> allow-ssh tcp-mode`.
 """
 import ipaddress
 import json
@@ -72,19 +77,24 @@ def main(argv):
             config = json.loads((PERSIST / 'active.json').read_text())
         except FileNotFoundError:
             return
-        if not isinstance(config, dict) or set(config) - {'interface', 'endpoint', 'allow_ssh'}:
+        if not isinstance(config, dict) or set(config) - {'interface', 'endpoint', 'allow_ssh', 'tcp_mode'}:
             raise ValueError('invalid persisted state')
         if not isinstance(config.get('interface'), str) or not isinstance(config.get('endpoint'), str):
             raise ValueError('invalid persisted state')
         allow_ssh = bool(config.get('allow_ssh', False))
+        tcp_mode = bool(config.get('tcp_mode', False))
         argv = ['enable', config['interface'], config['endpoint']]
         if allow_ssh:
             argv.append('allow-ssh')
-    if len(argv) not in (3, 4) or argv[0] != 'enable' or not re.fullmatch(r'ns[0-9a-f]{12}', argv[1]):
+        if tcp_mode:
+            argv.append('tcp-mode')
+    if len(argv) not in (3, 4, 5) or argv[0] != 'enable' or not re.fullmatch(r'ns[0-9a-f]{12}', argv[1]):
         raise ValueError('invalid request')
-    allow_ssh = len(argv) == 4 and argv[3] == 'allow-ssh'
-    if len(argv) == 4 and argv[3] != 'allow-ssh':
+    flags = argv[3:]
+    if len(flags) != len(set(flags)) or set(flags) - {'allow-ssh', 'tcp-mode'}:
         raise ValueError('invalid request')
+    allow_ssh = 'allow-ssh' in flags
+    tcp_mode = 'tcp-mode' in flags
     interface = argv[1]
     endpoint = ipaddress.IPv4Address(argv[2])
     if endpoint.is_multicast or endpoint.is_unspecified or endpoint.is_loopback:
@@ -111,6 +121,12 @@ def main(argv):
   udp dport 41641 accept
   ip daddr @ts_infra tcp dport 443 accept
 '''
+    tcp_rule = ''
+    if tcp_mode:
+        tcp_rule = f'''  # TCP mode (wstunnel): the WireGuard tunnel rides a WebSocket on TCP
+  # 80 to the VPN server, so that traffic must be allowed outside the VPN.
+  ip daddr {endpoint} tcp dport 80 accept
+'''
     rules = f'''table inet {TABLE} {{
 {ssh_set} chain output {{
   type filter hook output priority filter; policy drop;
@@ -123,14 +139,14 @@ def main(argv):
   # ...): `udp` alone is not valid nft syntax here, it needs a match after
   # it, so the protocol is matched with meta l4proto instead of a fixed port.
   ip daddr {endpoint} meta l4proto udp accept
- }}
+{tcp_rule} }}
 }}
 '''
     if not restoring:
         PERSIST.mkdir(mode=0o700, exist_ok=True)
         os.chmod(PERSIST, 0o700)
         temporary = PERSIST / 'active.json.tmp'
-        temporary.write_text(json.dumps({'interface': interface, 'endpoint': str(endpoint), 'allow_ssh': allow_ssh}))
+        temporary.write_text(json.dumps({'interface': interface, 'endpoint': str(endpoint), 'allow_ssh': allow_ssh, 'tcp_mode': tcp_mode}))
         os.chmod(temporary, 0o600)
         os.replace(temporary, PERSIST / 'active.json')
     STATE.mkdir(mode=0o755, exist_ok=True)
