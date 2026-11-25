@@ -517,6 +517,24 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Android home shows the VPN route map too', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api), notifier: FakeNotifier(), androidLayout: true));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.ensureVisible(find.text('Entrar a NetShield'));
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(VpnMapCard));
+    expect(find.byType(VpnMapCard), findsOneWidget);
+    expect(find.text('Tu ubicación real'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Desktop home shows the VPN route map in two phases', (tester) async {
     tester.view.physicalSize = const Size(1200, 1100);
     tester.view.devicePixelRatio = 1;
