@@ -20,6 +20,15 @@ install -m644 "$app_dir/packaging/arch/com.netshield.killswitch.packaged.policy"
 install -m644 "$app_dir/packaging/arch/netshield-lock-restore.service" "$workdir/input/netshield-lock-restore.service"
 install -m644 "$app_dir/packaging/arch/netshield.desktop" "$workdir/input/netshield.desktop"
 install -m644 "$app_dir/assets/netshield.svg" "$workdir/input/netshield.svg"
+# El CLI (bin/netshield.dart compilado a binario nativo) es obligatorio:
+# lo compila build-packages-docker.sh a build/cli/netshield.
+if [[ -x "$app_dir/build/cli/netshield" ]]; then
+  install -m755 "$app_dir/build/cli/netshield" "$workdir/input/netshield-cli"
+else
+  echo 'Falta build/cli/netshield. Compílalo con:' >&2
+  echo '  dart compile exe bin/netshield.dart -o build/cli/netshield' >&2
+  exit 1
+fi
 tar -C "$workdir/input" -czf "$workdir/rpmbuild/SOURCES/netshield-rpm-input.tar.gz" .
 sed -e "s/@VERSION@/$version/" -e "s/@RELEASE@/$release/" "$app_dir/packaging/fedora/netshield-vpn-dev.spec" > "$workdir/rpmbuild/SPECS/netshield-vpn-dev.spec"
 rpmbuild --define "_topdir $workdir/rpmbuild" -bb "$workdir/rpmbuild/SPECS/netshield-vpn-dev.spec"

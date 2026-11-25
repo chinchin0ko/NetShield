@@ -28,12 +28,14 @@ install -Dm644 netshield.desktop %{buildroot}/usr/share/applications/netshield-v
 install -Dm644 netshield.desktop %{buildroot}/usr/share/applications/com.netshield.netshield_app.desktop
 printf 'NoDisplay=true\n' >> %{buildroot}/usr/share/applications/com.netshield.netshield_app.desktop
 install -Dm644 netshield.svg %{buildroot}/usr/share/icons/hicolor/scalable/apps/netshield.svg
+install -Dm755 netshield-cli %{buildroot}/usr/bin/netshield
 printf '#!/bin/sh\nexec /opt/netshield/netshield_app "$@"\n' > %{buildroot}/usr/bin/netshield-vpn
 chmod 755 %{buildroot}/usr/bin/netshield-vpn
 
 %files
 /opt/netshield/
 /usr/bin/netshield-vpn
+/usr/bin/netshield
 /usr/lib/netshield/netshield-killswitch
 /usr/share/polkit-1/actions/com.netshield.killswitch.packaged.policy
 /usr/lib/systemd/system/netshield-lock-restore.service

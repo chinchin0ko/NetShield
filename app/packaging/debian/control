@@ -8,4 +8,5 @@ Maintainer: NetShield <dev@netshield.lat>
 Description: NetShield VPN development desktop client
  Cliente VPN de desarrollo con bloqueo de tráfico (killswitch),
  alertas de seguridad y notificaciones de escritorio.
+ Incluye el CLI `netshield` para controlar la VPN desde la terminal.
  Funciona en Debian, Ubuntu, Kali Linux y derivadas de Debian.

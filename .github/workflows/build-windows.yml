@@ -34,11 +34,21 @@ jobs:
       - name: Build Windows release
         run: flutter build windows --release
 
-      - name: Zip build
-        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath netshield-windows.zip
+      - name: Build CLI
+        # El CLI (Dart puro) se compila a un .exe nativo y se deja junto a
+        # la app para que el instalador lo incluya.
+        run: dart compile exe bin/netshield.dart -o build/windows/x64/runner/Release/netshield.exe
 
-      - name: Upload artifact
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows\installer\netshield.iss
+          Get-ChildItem windows\installer-output\
+
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: netshield-windows
-          path: app/netshield-windows.zip
+          name: netshield-windows-installer
+          path: app/windows/installer-output/netshield-setup-*.exe

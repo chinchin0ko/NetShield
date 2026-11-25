@@ -23,6 +23,15 @@ printf 'NoDisplay=true\n' >> "$root/usr/share/applications/com.netshield.netshie
 install -m644 "$app_dir/assets/netshield.svg" "$root/usr/share/icons/hicolor/scalable/apps/netshield.svg"
 printf '#!/bin/sh\nexec /opt/netshield/netshield_app "$@"\n' > "$root/usr/bin/netshield-vpn"
 chmod 755 "$root/usr/bin/netshield-vpn"
+# El CLI (bin/netshield.dart compilado a binario nativo) es obligatorio:
+# lo compila build-packages-docker.sh a build/cli/netshield.
+if [[ -x "$app_dir/build/cli/netshield" ]]; then
+  install -m755 "$app_dir/build/cli/netshield" "$root/usr/bin/netshield"
+else
+  echo 'Falta build/cli/netshield. Compílalo con:' >&2
+  echo '  dart compile exe bin/netshield.dart -o build/cli/netshield' >&2
+  exit 1
+fi
 sed "s/@VERSION@/$version/" "$app_dir/packaging/debian/control" > "$root/DEBIAN/control"
 install -m755 "$app_dir/packaging/debian/postinst" "$root/DEBIAN/postinst"
 install -m755 "$app_dir/packaging/debian/prerm" "$root/DEBIAN/prerm"

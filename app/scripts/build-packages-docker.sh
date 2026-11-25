@@ -16,7 +16,7 @@ docker build -q -t netshield-debian-builder \
 docker run --rm \
   -v "$app_dir:/work/app" -v "$flutter_sdk:/opt/flutter" -v "$HOME/.pub-cache:/home/chinchin/.pub-cache" -w /work/app \
   netshield-debian-builder \
-  bash -c 'rm -rf build/linux && flutter build linux --release && bash scripts/package-deb.sh'
+  bash -c 'rm -rf build/linux && flutter build linux --release && dart compile exe bin/netshield.dart -o build/cli/netshield && bash scripts/package-deb.sh'
 
 docker build -q -t netshield-fedora-builder \
   --build-arg UID="$uid" --build-arg GID="$gid" \
@@ -24,7 +24,7 @@ docker build -q -t netshield-fedora-builder \
 docker run --rm \
   -v "$app_dir:/work/app" -v "$flutter_sdk:/opt/flutter" -v "$HOME/.pub-cache:/home/chinchin/.pub-cache" -w /work/app \
   netshield-fedora-builder \
-  bash -c 'rm -rf build/linux && flutter build linux --release && bash scripts/package-rpm.sh'
+  bash -c 'rm -rf build/linux && flutter build linux --release && dart compile exe bin/netshield.dart -o build/cli/netshield && bash scripts/package-rpm.sh'
 
 printf 'Paquetes en %s/dist\n' "$app_dir"
 ls -lh "$app_dir"/dist/*.deb "$app_dir"/dist/*.rpm
