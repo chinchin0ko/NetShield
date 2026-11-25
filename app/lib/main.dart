@@ -736,7 +736,11 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   Widget connectedPanel() => LayoutBuilder(builder: (context, bounds) {
     final horizontal = bounds.maxWidth < 380 ? 12.0 : (bounds.maxWidth < 600 ? 20.0 : 40.0);
     final vertical = bounds.maxHeight < 500 ? 12.0 : 28.0;
-    final navWidth = (bounds.maxWidth - horizontal * 2 - 14).clamp(0.0, double.infinity);
+    // The exit button lives in the fixed header next to the tabs, so it is
+    // never scrolled away. It is icon-only on very narrow windows.
+    final compactExit = bounds.maxWidth < 380;
+    final exitWidth = compactExit ? 48.0 : 108.0;
+    final navWidth = (bounds.maxWidth - horizontal * 2 - 14 - exitWidth - 10).clamp(0.0, double.infinity);
     final columns = navWidth < 440 ? 2 : 4;
     final itemWidth = ((navWidth - 6 * (columns - 1)) / columns).clamp(0.0, double.infinity);
     final navigation = Container(
@@ -750,6 +754,17 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
         SizedBox(width: itemWidth, child: navItem(3, Icons.shield_outlined, 'Alertas')),
       ]),
     );
+    // Big, always-visible exit button. signOut already disconnects the VPN
+    // first (vpn.disconnect when connected or the lock is active), then
+    // clears the session.
+    final exitButton = SizedBox(
+      height: 48,
+      width: exitWidth,
+      child: compactExit
+          ? IconButton(onPressed: vpnLoading ? null : signOut, tooltip: 'Salir', icon: const Icon(Icons.logout_rounded, size: 20), color: forest, style: IconButton.styleFrom(backgroundColor: Colors.white.withValues(alpha: .7), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14), side: const BorderSide(color: forest))))
+          : OutlinedButton.icon(onPressed: vpnLoading ? null : signOut, icon: const Icon(Icons.logout_rounded, size: 19), label: const Text('Salir', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)), style: OutlinedButton.styleFrom(foregroundColor: forest, side: const BorderSide(color: forest), backgroundColor: Colors.white.withValues(alpha: .7), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)), padding: const EdgeInsets.symmetric(horizontal: 16))),
+    );
+    final header = Row(children: [Expanded(child: navigation), const SizedBox(width: 10), exitButton]);
     final content = AnimatedSwitcher(duration: const Duration(milliseconds: 220), child: KeyedSubtree(key: ValueKey(page), child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -760,11 +775,11 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
     // At very short window heights, let the entire panel scroll so navigation
     // and content remain reachable; otherwise keep navigation fixed.
     if (bounds.maxHeight < 210) {
-      return SingleChildScrollView(key: ValueKey('dashboard-content-$page'), padding: EdgeInsets.fromLTRB(horizontal, vertical, horizontal, vertical), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [navigation, const SizedBox(height: 16), content]));
+      return SingleChildScrollView(key: ValueKey('dashboard-content-$page'), padding: EdgeInsets.fromLTRB(horizontal, vertical, horizontal, vertical), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [header, const SizedBox(height: 16), content]));
     }
     return Padding(padding: EdgeInsets.fromLTRB(horizontal, vertical, horizontal, 0), child:
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        navigation,
+        header,
         const SizedBox(height: 18),
         Expanded(child: SingleChildScrollView(key: ValueKey('dashboard-content-$page'), padding: EdgeInsets.only(bottom: vertical), child: content)),
       ]));
@@ -780,10 +795,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   ));
 
   Widget homePanel() => Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-    Row(children: [
-      const Expanded(child: Text('TU ESPACIO PRIVADO', style: TextStyle(color: green, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.9))),
-      IconButton(onPressed: vpnLoading ? null : signOut, tooltip: 'Cerrar sesión', icon: const Icon(Icons.logout_rounded, size: 20), color: forest, padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 36, minHeight: 36)),
-    ]),
+    const Text('TU ESPACIO PRIVADO', style: TextStyle(color: green, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.9)),
     const SizedBox(height: 12), Text('Hola, $signedInAs', style: const TextStyle(fontSize: 29, color: deep, fontWeight: FontWeight.w800, letterSpacing: -.8)),
     const SizedBox(height: 9), const Text('Tu sesión está lista.', style: TextStyle(color: Color(0xFF55655b), fontSize: 15)),
     const SizedBox(height: 36),

@@ -1,13 +1,15 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
 
-/// Animated mini-map of the VPN connection flow (desktop only for now).
-/// The server lives in Oracle Cloud's mx-queretaro-1 region (Queretaro,
-/// Mexico, 20.5881, -100.3881). The map shows the flow in two steps:
-/// first your location (Tuxtla Gutierrez, Chiapas, where Juan studies),
-/// then the animated route to the Queretaro server. The Mexico outline
-/// keeps its real 31:18 geographic aspect ratio so it never stretches.
+/// Animated mini-map of the VPN connection (desktop only for now).
+/// Two phases, never both points at once:
+///  - Disconnected: only YOUR real location (Tuxtla Gutierrez, Chiapas)
+///    and your real public IP, fetched from api.ipify.org.
+///  - When you connect: the marker flies from your real location to the
+///    server in Queretaro (Oracle Cloud mx-queretaro-1, 20.5881, -100.3881)
+///    along an arc, then only the server marker stays, pulsing.
 /// The animations stay off under `flutter test` so widget tests settle.
 
 const _mapInk = Color(0xff344e41);
@@ -31,6 +33,20 @@ Offset _place(Size size, Offset n) {
 final _origin = _ll(-93.1, 16.75); // Tuxtla Gutierrez, Chiapas (you)
 final _dest = _ll(-100.3881, 20.5881); // Queretaro server
 
+Future<String?> _fetchPublicIp() async {
+  try {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+    final request = await client.getUrl(Uri.parse('https://api.ipify.org'));
+    final response = await request.close().timeout(const Duration(seconds: 6));
+    final body = await response.transform(const Utf8Decoder()).join().timeout(const Duration(seconds: 6));
+    client.close();
+    final ip = body.trim();
+    return ip.isEmpty ? null : ip;
+  } catch (_) {
+    return null;
+  }
+}
+
 class VpnMapCard extends StatefulWidget {
   const VpnMapCard({super.key, required this.connected});
   final bool connected;
@@ -39,56 +55,87 @@ class VpnMapCard extends StatefulWidget {
 }
 
 class _VpnMapCardState extends State<VpnMapCard> with SingleTickerProviderStateMixin {
-  AnimationController? _flow;
+  AnimationController? _fly;
   AnimationController? _rings;
+  String? _publicIp;
+  bool _ipLoading = false;
 
   @override
   void initState() {
     super.initState();
     _syncAnimations();
+    _refreshIp();
   }
 
   @override
   void didUpdateWidget(covariant VpnMapCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.connected != widget.connected) _syncAnimations();
-  }
-
-  void _syncAnimations() {
-    // Animate only when connected, and never under `flutter test`.
-    final animate = widget.connected && !Platform.environment.containsKey('FLUTTER_TEST');
-    if (animate && _flow == null) {
-      _flow = AnimationController(vsync: this, duration: const Duration(milliseconds: 3200))..repeat();
-      _rings = AnimationController(vsync: this, duration: const Duration(milliseconds: 2400))..repeat();
-    } else if (!animate) {
-      _flow?.dispose();
-      _rings?.dispose();
-      _flow = null;
-      _rings = null;
+    if (oldWidget.connected != widget.connected) {
+      _syncAnimations();
+      _refreshIp();
     }
   }
 
-  @override
-  void dispose() {
-    _flow?.dispose();
-    _rings?.dispose();
-    super.dispose();
+  void _syncAnimations() {
+    // Animate only outside `flutter test`.
+    final animate = !Platform.environment.containsKey('FLUTTER_TEST');
+    if (animate && _fly == null) {
+      _fly = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600));
+      _rings = AnimationController(vsync: this, duration: const Duration(milliseconds: 2400))..repeat();
+      // Start at the right end for the current state (no fly on first build).
+      if (widget.connected) _fly!.value = 1;
+    } else if (!animate) {
+      _fly?.dispose();
+      _rings?.dispose();
+      _fly = null;
+      _rings = null;
+    }
+    if (widget.connected) {
+      _fly?.forward();
+    } else {
+      _fly?.reverse();
+    }
   }
 
-  Widget _mapContent(double flowProgress, double ringProgress) => Container(
+  Future<void> _refreshIp() async {
+    // No network lookups under `flutter test`; the card just shows the
+    // location text without the IP there.
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+    if (_ipLoading) return;
+    _ipLoading = true;
+    final ip = await _fetchPublicIp();
+    if (!mounted) return;
+    setState(() {
+      _publicIp = ip;
+      _ipLoading = false;
+    });
+  }
+
+  Widget _mapContent(double flyProgress, double ringProgress) => Container(
     decoration: const BoxDecoration(
       gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xffe9efe2), Color(0xffdbe5d2)]),
     ),
     child: CustomPaint(
       painter: const _MexicoPainter(),
-      foregroundPainter: _FlowPainter(connected: widget.connected, flowProgress: flowProgress, ringProgress: ringProgress),
+      foregroundPainter: _FlowPainter(connected: widget.connected, flyProgress: flyProgress, ringProgress: ringProgress),
     ),
   );
 
   @override
+  void dispose() {
+    _fly?.dispose();
+    _rings?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final flow = _flow;
+    final fly = _fly;
     final rings = _rings;
+    // Under test, or before the first frame, snap to the current state.
+    final flyProgress = fly?.value ?? (widget.connected ? 1.0 : 0.0);
+    final ringProgress = rings?.value ?? 0.0;
+    final ip = _publicIp;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -102,7 +149,7 @@ class _VpnMapCardState extends State<VpnMapCard> with SingleTickerProviderStateM
         Row(children: [
           const Icon(Icons.map_outlined, color: _mapGreen, size: 20),
           const SizedBox(width: 10),
-          const Expanded(child: Text('Tu ruta VPN', style: TextStyle(color: _mapInk, fontWeight: FontWeight.w800, fontSize: 15))),
+          Expanded(child: Text(widget.connected ? 'Tu ubicación VPN' : 'Tu ubicación real', style: const TextStyle(color: _mapInk, fontWeight: FontWeight.w800, fontSize: 15))),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(color: (widget.connected ? _mapGreen : _mapMuted).withValues(alpha: .12), borderRadius: BorderRadius.circular(20)),
@@ -115,28 +162,30 @@ class _VpnMapCardState extends State<VpnMapCard> with SingleTickerProviderStateM
           width: double.infinity,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(14),
-            child: flow == null
-                ? _mapContent(0, 0)
+            child: fly == null
+                ? _mapContent(flyProgress, ringProgress)
                 : AnimatedBuilder(
-                    animation: Listenable.merge([flow, rings!]),
-                    builder: (context, _) => _mapContent(flow.value, rings.value),
+                    animation: Listenable.merge([fly, rings!]),
+                    builder: (context, _) => _mapContent(fly.value, rings.value),
                   ),
           ),
         ),
         const SizedBox(height: 12),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [_legendDot(_mapAccent), const SizedBox(width: 7), const Flexible(child: Text('Tú · Chiapas', style: TextStyle(color: _mapInk, fontWeight: FontWeight.w700, fontSize: 13)))]),
-          const SizedBox(height: 6),
-          Row(children: [_legendDot(_mapGreen), const SizedBox(width: 7), const Flexible(child: Text('Servidor · Querétaro', style: TextStyle(color: _mapInk, fontWeight: FontWeight.w700, fontSize: 13)))]),
-        ]),
-        const SizedBox(height: 4),
-        Text(widget.connected ? 'Tu tráfico viaja de Chiapas al servidor de Oracle Cloud en Querétaro.' : 'Al conectar, tu tráfico viajará de Chiapas al servidor de Oracle Cloud en Querétaro.', style: const TextStyle(color: _mapMuted, fontSize: 13, height: 1.4)),
+        Text(
+          widget.connected ? 'Querétaro, México' : 'Tuxtla Gutiérrez, Chiapas',
+          style: const TextStyle(color: _mapInk, fontWeight: FontWeight.w800, fontSize: 15),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          widget.connected
+              ? (ip == null ? 'Tu tráfico sale por el servidor de Oracle Cloud en Querétaro.' : 'Tu IP con la VPN: $ip · Servidor de Oracle Cloud en Querétaro.')
+              : (ip == null ? 'Esta es tu ubicación aproximada sin la VPN.' : 'Tu IP real: $ip · Ubicación aproximada sin la VPN.'),
+          style: const TextStyle(color: _mapMuted, fontSize: 13, height: 1.4),
+        ),
       ]),
     );
   }
 }
-
-Widget _legendDot(Color color) => Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2), boxShadow: [BoxShadow(color: color.withValues(alpha: .35), blurRadius: 4, offset: const Offset(0, 1))]));
 
 /// Simplified Mexico outline (lon/lat points), drawn with its real aspect.
 class _MexicoPainter extends CustomPainter {
@@ -189,22 +238,21 @@ class _MexicoPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-/// The connection flow: origin marker, animated route to the server,
-/// pulsing destination rings, and labels. When disconnected the route is
-/// a faint static line and both markers are still.
+/// One marker at a time. `flyProgress` 0 = at your real location,
+/// 1 = at the server. While it flies (0..1) the dot travels the arc and
+/// the trail draws behind it; the origin fades out and the server fades in.
 class _FlowPainter extends CustomPainter {
-  const _FlowPainter({required this.connected, this.flowProgress = 0, this.ringProgress = 0});
+  const _FlowPainter({required this.connected, this.flyProgress = 0, this.ringProgress = 0});
   final bool connected;
-  final double flowProgress;
+  final double flyProgress;
   final double ringProgress;
 
-  void _label(Canvas canvas, String text, Offset anchor, {bool alignRight = false}) {
+  void _label(Canvas canvas, String text, Offset anchor) {
     final painter = TextPainter(
       text: TextSpan(text: text, style: const TextStyle(color: _mapInk, fontWeight: FontWeight.w800, fontSize: 12)),
       textDirection: TextDirection.ltr,
     )..layout();
-    final pos = alignRight ? Offset(anchor.dx - painter.width, anchor.dy) : anchor;
-    painter.paint(canvas, pos);
+    painter.paint(canvas, anchor);
   }
 
   @override
@@ -216,47 +264,52 @@ class _FlowPainter extends CustomPainter {
     final route = Path()
       ..moveTo(origin.dx, origin.dy)
       ..quadraticBezierTo(control.dx, control.dy, dest.dx, dest.dy);
+    final p = flyProgress.clamp(0.0, 1.0);
 
-    final line = Paint()..color = _mapGreen.withValues(alpha: connected ? .55 : .25)..style = PaintingStyle.stroke..strokeWidth = 2..strokeCap = StrokeCap.round;
-    if (connected && flowProgress > 0.02) {
+    // Trail + travelling dot while the location is changing.
+    if (p > 0.02 && p < 0.98) {
       final metric = route.computeMetrics().first;
       final total = metric.length;
-      final drawn = metric.extractPath(0, flowProgress * total);
-      canvas.drawPath(drawn, line);
-      final tip = metric.getTangentForOffset(flowProgress * total);
+      final line = Paint()..color = _mapGreen.withValues(alpha: .55)..style = PaintingStyle.stroke..strokeWidth = 2..strokeCap = StrokeCap.round;
+      canvas.drawPath(metric.extractPath(0, p * total), line);
+      final tip = metric.getTangentForOffset(p * total);
       if (tip != null) {
         final glow = Paint()..color = _mapAccent.withValues(alpha: .35);
-        canvas.drawCircle(tip.position, 7, glow);
+        canvas.drawCircle(tip.position, 8, glow);
         final dot = Paint()..color = _mapAccent;
-        canvas.drawCircle(tip.position, 4, dot);
-      }
-    } else {
-      canvas.drawPath(route, line);
-    }
-
-    // Origin marker: you.
-    final originDot = Paint()..color = _mapAccent;
-    canvas.drawCircle(origin, 6.5, originDot);
-    final originHalo = Paint()..color = Colors.white.withValues(alpha: .9);
-    canvas.drawCircle(origin, 2.8, originHalo);
-    _label(canvas, 'Tú', Offset(origin.dx + 10, origin.dy - 18));
-
-    // Destination marker: the server, pulsing while connected.
-    if (connected) {
-      for (final phase in [0.0, 0.5]) {
-        final p = (ringProgress + phase) % 1.0;
-        final ring = Paint()..color = _mapGreen.withValues(alpha: (1 - p) * .45)..style = PaintingStyle.stroke..strokeWidth = 2;
-        canvas.drawCircle(dest, 8 + p * 26, ring);
+        canvas.drawCircle(tip.position, 4.5, dot);
       }
     }
-    final destDot = Paint()..color = _mapGreen;
-    canvas.drawCircle(dest, 7, destDot);
-    final destHalo = Paint()..color = Colors.white.withValues(alpha: .9);
-    canvas.drawCircle(dest, 3.2, destHalo);
-    _label(canvas, 'Querétaro', Offset(dest.dx + 11, dest.dy - 6));
+
+    // Your real location: visible when disconnected, fades as you fly away.
+    final originAlpha = (1 - p).clamp(0.0, 1.0);
+    if (originAlpha > 0.02) {
+      final dot = Paint()..color = _mapAccent.withValues(alpha: originAlpha);
+      canvas.drawCircle(origin, 6.5, dot);
+      final halo = Paint()..color = Colors.white.withValues(alpha: .9 * originAlpha);
+      canvas.drawCircle(origin, 2.8, halo);
+      _label(canvas, 'Tú', Offset(origin.dx + 10, origin.dy - 18));
+    }
+
+    // The server: fades in as you arrive, then pulses while connected.
+    final destAlpha = p.clamp(0.0, 1.0);
+    if (destAlpha > 0.02) {
+      if (connected && p > 0.95) {
+        for (final phase in [0.0, 0.5]) {
+          final rp = (ringProgress + phase) % 1.0;
+          final ring = Paint()..color = _mapGreen.withValues(alpha: (1 - rp) * .45)..style = PaintingStyle.stroke..strokeWidth = 2;
+          canvas.drawCircle(dest, 8 + rp * 26, ring);
+        }
+      }
+      final dot = Paint()..color = _mapGreen.withValues(alpha: destAlpha);
+      canvas.drawCircle(dest, 7, dot);
+      final halo = Paint()..color = Colors.white.withValues(alpha: .9 * destAlpha);
+      canvas.drawCircle(dest, 3.2, halo);
+      _label(canvas, 'Querétaro', Offset(dest.dx + 11, dest.dy - 6));
+    }
   }
 
   @override
   bool shouldRepaint(covariant _FlowPainter oldDelegate) =>
-      connected != oldDelegate.connected || flowProgress != oldDelegate.flowProgress || ringProgress != oldDelegate.ringProgress;
+      connected != oldDelegate.connected || flyProgress != oldDelegate.flyProgress || ringProgress != oldDelegate.ringProgress;
 }

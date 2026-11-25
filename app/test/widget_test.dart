@@ -124,9 +124,9 @@ void main() {
     await tester.pumpAndSettle();
     tester.view.physicalSize = const Size(320, 180);
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byTooltip('Cerrar sesión'));
+    await tester.ensureVisible(find.byTooltip('Salir'));
     await tester.pumpAndSettle();
-    expect(tester.getRect(find.byTooltip('Cerrar sesión')).bottom, lessThanOrEqualTo(180));
+    expect(tester.getRect(find.byTooltip('Salir')).bottom, lessThanOrEqualTo(180));
     await tester.ensureVisible(find.text('Alertas'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Alertas'));
@@ -371,13 +371,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(vpn.connectedAccount, 'demo');
     expect(find.text('Conectado'), findsOneWidget);
-    await tester.tap(find.text('Desconectar'));
+    // Salir disconnects the VPN first, then closes the session.
+    await tester.ensureVisible(find.text('Salir'));
     await tester.pumpAndSettle();
-    expect(find.text('Desconectado'), findsOneWidget);
-    await tester.ensureVisible(find.byTooltip('Cerrar sesión'));
+    await tester.tap(find.text('Salir'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Cerrar sesión'));
-    await tester.pumpAndSettle();
+    expect(vpn.connected, isFalse);
     expect(find.text('Qué gusto verte'), findsOneWidget);
   });
 
@@ -462,7 +461,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Desktop home shows the animated VPN route map', (tester) async {
+  testWidgets('Desktop home shows the VPN route map in two phases', (tester) async {
     tester.view.physicalSize = const Size(1200, 1100);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -474,17 +473,19 @@ void main() {
     await tester.tap(find.text('Entrar a NetShield'));
     await tester.pumpAndSettle();
     expect(find.byType(VpnMapCard), findsOneWidget);
-    expect(find.text('Tu ruta VPN'), findsOneWidget);
-    expect(find.text('Tú · Chiapas'), findsOneWidget);
-    expect(find.text('Servidor · Querétaro'), findsOneWidget);
+    expect(find.text('Tu ubicación real'), findsOneWidget);
+    expect(find.text('Tuxtla Gutiérrez, Chiapas'), findsOneWidget);
     expect(find.text('Desconectado'), findsOneWidget);
     expect(find.text('En espera'), findsOneWidget);
     expect(find.byType(AnimatedAtmosphere), findsOneWidget);
     expect(find.text('Administrar dispositivos'), findsNothing);
+    expect(find.text('Salir'), findsOneWidget);
     await tester.tap(find.text('Conectar'));
     await tester.pumpAndSettle();
     expect(find.text('Conectado'), findsOneWidget);
     expect(find.text('En línea'), findsOneWidget);
+    expect(find.text('Tu ubicación VPN'), findsOneWidget);
+    expect(find.text('Querétaro, México'), findsOneWidget);
     expect(find.byType(VpnMapCard), findsOneWidget);
   });
 
