@@ -119,7 +119,10 @@ def main(argv):
   # retry IPv4 promptly; no IPv6 packet may leave through any interface.
   meta nfproto ipv6 reject with icmpv6 type no-route
 {ssh_rules}  oifname "{interface}" accept
-  ip daddr {endpoint} udp accept
+  # Allow UDP to the VPN server on whatever port it listens on (51820, 443,
+  # ...): `udp` alone is not valid nft syntax here, it needs a match after
+  # it, so the protocol is matched with meta l4proto instead of a fixed port.
+  ip daddr {endpoint} meta l4proto udp accept
  }}
 }}
 '''
