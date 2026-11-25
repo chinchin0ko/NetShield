@@ -9,9 +9,53 @@ struct _MyApplication {
   char** dart_entrypoint_arguments;
   GtkWindow* window;
   bool first_frame_received;
+  FlMethodChannel* window_channel;
+  // Whether the window may close. Dart sets it: true on the login screen
+  // (no session) or when exiting via Salir; false while logged in, so the
+  // app can never be closed (and the VPN killed) with the X button.
+  // Defaults to TRUE so the login screen closes normally before Dart
+  // reports the session state.
+  gboolean allow_close;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+// Handles Dart calls on netshield/window: setAllowClose(bool) and
+// closeWindow(). closeWindow() only runs after Salir has disconnected the
+// VPN and cleared the session, so it is always safe to quit from here.
+static void window_method_call_handler(FlMethodChannel* channel,
+                                       FlMethodCall* method_call,
+                                       gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  const gchar* method = fl_method_call_get_name(method_call);
+  if (g_strcmp0(method, "setAllowClose") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    if (args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_BOOL) {
+      self->allow_close = fl_value_get_bool(args);
+    }
+    fl_method_call_respond_success(method_call, nullptr, nullptr);
+    return;
+  }
+  if (g_strcmp0(method, "closeWindow") == 0) {
+    self->allow_close = TRUE;
+    fl_method_call_respond_success(method_call, nullptr, nullptr);
+    if (self->window != nullptr) gtk_window_close(self->window);
+    return;
+  }
+  fl_method_call_respond_not_implemented(method_call, nullptr);
+}
+
+// Blocks the X button unless Dart allowed closing. When blocked, tells Dart
+// so it can explain that Salir is the way to exit.
+static gboolean on_window_delete(GtkWidget*, GdkEvent*, gpointer data) {
+  MyApplication* self = MY_APPLICATION(data);
+  if (self->allow_close) return FALSE;
+  if (self->window_channel != nullptr) {
+    fl_method_channel_invoke_method(self->window_channel, "onCloseBlocked",
+                                    nullptr, nullptr, nullptr, nullptr);
+  }
+  return TRUE;
+}
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
@@ -48,12 +92,20 @@ static void my_application_activate(GApplication* application) {
   gtk_window_set_title(window, "NetShield VPN");
   gtk_window_set_icon_name(window, "netshield");
   self->window = window;
+  self->allow_close = TRUE;
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
 
   FlView* view = fl_view_new(project);
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->window_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "netshield/window", FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(
+      self->window_channel, window_method_call_handler, self, nullptr);
+  g_signal_connect(window, "delete-event", G_CALLBACK(on_window_delete), self);
   GdkRGBA background_color;
   // Background defaults to black, override it here if necessary, e.g. #00000000
   // for transparent.
@@ -116,6 +168,7 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&self->window_channel);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 

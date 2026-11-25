@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:netshield_app/main.dart';
@@ -396,6 +397,43 @@ void main() {
     await tester.pumpAndSettle();
     expect(vpn.connected, isFalse);
     expect(find.text('Qué gusto verte'), findsOneWidget);
+  });
+
+  testWidgets('Window close is blocked while logged in and Salir closes it', (tester) async {
+    tester.view.physicalSize = const Size(1200, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final calls = <MethodCall>[];
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const channel = MethodChannel('netshield/window');
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final api = FakeApi();
+    final vpn = FakeVpn(api);
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    // Logged in: the native runner must refuse to close the window.
+    expect(calls.where((c) => c.method == 'setAllowClose').last.arguments, isFalse);
+    await tester.tap(find.text('Conectar'));
+    await tester.pumpAndSettle();
+    expect(vpn.connected, isTrue);
+    // Salir disconnects the VPN first, then allows closing and closes.
+    await tester.ensureVisible(find.text('Salir'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Salir'));
+    await tester.pumpAndSettle();
+    expect(vpn.connected, isFalse);
+    expect(calls.where((c) => c.method == 'setAllowClose').last.arguments, isTrue);
+    expect(calls.any((c) => c.method == 'closeWindow'), isTrue);
+    expect(find.text('Qué gusto verte'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('Register validates and returns to login', (tester) async {

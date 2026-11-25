@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'services/api_client.dart';
 import 'services/linux_vpn.dart';
@@ -94,10 +95,50 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   Timer? monitor;
   String? error, notice, token, signedInAs;
 
+  // Desktop window close guard (channel netshield/window, Linux/Windows
+  // runners): the X button only closes on the login screen or when exiting
+  // via Salir, so the app can never be killed while the VPN is active.
+  static const _windowChannel = MethodChannel('netshield/window');
+  bool _exiting = false;
+
+  // Reports whether the window may close to the native runner. Desktop
+  // only; silently ignored where the channel does not exist (Android,
+  // tests). True on the login screen (no token) or when Salir is quitting
+  // the app; false while logged in.
+  Future<void> _updateWindowCloseGuard() async {
+    if (Platform.isAndroid) return;
+    try {
+      await _windowChannel.invokeMethod('setAllowClose', token == null || _exiting);
+    } catch (_) { /* No desktop window channel (tests, unsupported platform). */ }
+  }
+
+  Future<void> _closeWindow() async {
+    if (Platform.isAndroid) return;
+    try {
+      await _windowChannel.invokeMethod('closeWindow');
+    } catch (_) { /* No desktop window channel. */ }
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (!Platform.isAndroid) {
+      _windowChannel.setMethodCallHandler((call) async {
+        if (call.method == 'onCloseBlocked' && mounted) {
+          final messenger = ScaffoldMessenger.maybeOf(context);
+          final hint = vpnConnected
+              ? 'La VPN está activa. Usa el botón Salir para cerrar la app.'
+              : 'Usa el botón Salir para cerrar la app.';
+          if (messenger != null) {
+            messenger.showSnackBar(SnackBar(content: Text(hint)));
+          } else {
+            setState(() => error = hint);
+          }
+        }
+      });
+      unawaited(_updateWindowCloseGuard());
+    }
     if (vpn is AndroidVpn) unawaited(restoreAndroidSession());
     vpn.isKillSwitchEnabled().then((blocked) {
       if (mounted) setState(() => trafficBlocked = blocked);
@@ -154,6 +195,8 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
       final blocked = await vpn.isKillSwitchEnabled();
       if (!mounted) return;
       setState(() { token = result; signedInAs = account; vpnConnected = active; trafficBlocked = blocked; password.clear(); });
+      _exiting = false;
+      unawaited(_updateWindowCloseGuard());
       if (Platform.isAndroid) {
         pushStarting = push.start(result).then((active) {
           if (mounted && token == result) setState(() => pushActive = active);
@@ -574,6 +617,13 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
       alertsTimer?.cancel();
       alertSession++;
       if (mounted) setState(() { unseenAlertIds.clear(); alertsInitialized = false; lastAlertId = 0; pushActive = false; pushStarting = null; vpnGeneration++; token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; usageHistory = null; historyUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertsChecking = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
+      // Salir is the only way out while logged in: the VPN is already
+      // disconnected and the session cleared above, so quit the app.
+      // On Android and in tests there is no window channel, so this is a
+      // no-op and the login screen simply stays visible.
+      _exiting = true;
+      await _updateWindowCloseGuard();
+      await _closeWindow();
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {

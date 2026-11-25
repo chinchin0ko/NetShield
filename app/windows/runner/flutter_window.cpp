@@ -27,6 +27,32 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
+  // Channel netshield/window: Dart reports whether the window may close.
+  // setAllowClose(bool) updates the guard; closeWindow() runs only after
+  // Salir disconnected the VPN and cleared the session.
+  window_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine(), "netshield/window",
+          &flutter::StandardMethodCodec::GetInstance());
+  window_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        if (call.method_name() == "setAllowClose") {
+          const auto* allow = std::get_if<bool>(call.arguments());
+          if (allow != nullptr) allow_close_ = *allow;
+          result->Success();
+          return;
+        }
+        if (call.method_name() == "closeWindow") {
+          allow_close_ = true;
+          result->Success();
+          Destroy();
+          return;
+        }
+        result->NotImplemented();
+      });
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -62,6 +88,17 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case WM_CLOSE:
+      // The X button only closes on the login screen or when exiting via
+      // Salir. While logged in the window stays open so the VPN can never
+      // be killed by accident; Dart explains it with a hint.
+      if (!allow_close_) {
+        if (window_channel_ != nullptr) {
+          window_channel_->InvokeMethod("onCloseBlocked", nullptr);
+        }
+        return 0;
+      }
+      break;
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
