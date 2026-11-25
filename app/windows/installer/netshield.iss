@@ -36,6 +36,8 @@ Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; Gr
 [Files]
 ; Todo el bundle de Flutter (la app) más el CLI, que la CI deja en Release\.
 Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+; Atajo corto nsv para el CLI.
+Source: "nsv.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\netshield_app.exe"

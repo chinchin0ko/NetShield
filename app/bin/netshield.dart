@@ -231,7 +231,7 @@ String _timeAgo(String iso) {
 }
 
 void _printHelp() {
-  stdout.writeln('Uso: ${_bold('netshield')} <comando> [opciones]');
+  stdout.writeln('Uso: ${_bold('netshield')} <comando> [opciones]  (atajo: ${_bold('nsv')})');
   stdout.writeln();
   stdout.writeln(_bold('Sesión'));
   stdout.writeln('  ${_cyan('login')}                Inicia sesión y guarda el token para el CLI.');
@@ -255,6 +255,7 @@ void _printHelp() {
   stdout.writeln();
   stdout.writeln(_dim('El token se guarda en ${_sessionFile.path} (solo legible por ti).'));
   stdout.writeln(_dim('La sesión dura 30 minutos; si caduca, vuelve a hacer login.'));
+  stdout.writeln(_dim('Atajo: nsv hace lo mismo que netshield.'));
 }
 
 // ---------------------------------------------------------------------------

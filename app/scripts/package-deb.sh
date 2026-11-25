@@ -27,6 +27,7 @@ chmod 755 "$root/usr/bin/netshield-vpn"
 # lo compila build-packages-docker.sh a build/cli/netshield.
 if [[ -x "$app_dir/build/cli/netshield" ]]; then
   install -m755 "$app_dir/build/cli/netshield" "$root/usr/bin/netshield"
+  ln -s netshield "$root/usr/bin/nsv"
 else
   echo 'Falta build/cli/netshield. Compílalo con:' >&2
   echo '  dart compile exe bin/netshield.dart -o build/cli/netshield' >&2

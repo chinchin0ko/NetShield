@@ -22,6 +22,7 @@ package() {
   printf "NoDisplay=true\n" >> "$pkgdir/usr/share/applications/com.netshield.netshield_app.desktop"
   install -Dm644 "$srcdir/input/netshield.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/netshield.svg"
   install -Dm755 "$srcdir/input/netshield-cli" "$pkgdir/usr/bin/netshield"
+  ln -s netshield "$pkgdir/usr/bin/nsv"
   printf '#!/bin/sh\nexec /opt/netshield/netshield_app "$@"\n' > "$pkgdir/usr/bin/netshield-vpn"
   chmod 755 "$pkgdir/usr/bin/netshield-vpn"
 }
