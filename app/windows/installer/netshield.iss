@@ -38,6 +38,15 @@ Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; Gr
 Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 ; Atajo corto nsv para el CLI.
 Source: "nsv.bat"; DestDir: "{app}"; Flags: ignoreversion
+; Instalador MSI de WireGuard (lo descarga la CI a esta carpeta). Se copia
+; a {tmp} y se borra tras instalar; el [Run] lo instala en silencio antes
+; de que la app se use por primera vez.
+Source: "wireguard-amd64-1.1.1.msi"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall
+
+[Run]
+; Instala WireGuard para Windows en silencio (sin lanzar su GUI) solo si
+; aún no está instalado. La app lo necesita para el túnel VPN.
+Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\wireguard-amd64-1.1.1.msi"" /qn /norestart DO_NOT_LAUNCH=1"; Check: NeedsWireGuard; Flags: runhidden waituntilterminated; StatusMsg: "Instalando WireGuard..."
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\netshield_app.exe"
@@ -63,6 +72,12 @@ begin
     exit;
   end;
   Result := Pos(';' + Param + ';', ';' + OrigPath + ';') = 0;
+end;
+
+// Instala WireGuard solo si aún no está (lo detecta por su ejecutable).
+function NeedsWireGuard(): boolean;
+begin
+  Result := not FileExists(ExpandConstant('{pf}\WireGuard\wireguard.exe'));
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

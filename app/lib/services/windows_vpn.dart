@@ -135,7 +135,8 @@ class WindowsVpn extends LinuxVpn {
   // -- Privileged helper (UAC prompt, waits for the elevated step). ---------
 
   /// Runs [psLines] as administrator and returns the exit code. The user
-  /// sees one UAC prompt per call; denying it fails the step.
+  /// sees one UAC prompt per call; denying it fails the step. The elevated
+  /// window itself stays hidden so PowerShell does not flash on screen.
   Future<int> _runElevated(List<String> psLines) async {
     final temp = await Directory.systemTemp.createTemp('netshield-');
     try {
@@ -144,7 +145,7 @@ class WindowsVpn extends LinuxVpn {
       final launcher =
           '\$p = Start-Process -FilePath "powershell" -ArgumentList '
           '"-NoProfile","-ExecutionPolicy","Bypass","-File",'
-          '"${script.path}" -Verb RunAs -PassThru -Wait; '
+          '"${script.path}" -Verb RunAs -WindowStyle Hidden -PassThru -Wait; '
           'exit \$p.ExitCode';
       final result = await Process.run('powershell',
               ['-NoProfile', '-Command', launcher])
@@ -348,6 +349,33 @@ class WindowsVpn extends LinuxVpn {
     }
   }
 
+  /// Removes the tunnel service, but only when it actually exists, and
+  /// never shows wireguard.exe's own error dialog. Used for cleanup after
+  /// a failed connect: uninstalling a service that was never installed
+  /// used to pop up "The specified service does not exist as an
+  /// installed service." even though there was nothing to remove.
+  Future<void> _uninstallTunnelSilent(String tunnel) async {
+    if (!await _serviceExists(tunnel)) return;
+    try {
+      final wireguardExe = await _wireguardExe();
+      await _runElevated([
+        '& "$wireguardExe" /uninstalltunnelservice "$tunnel"',
+        'exit \$LASTEXITCODE',
+      ]);
+    } catch (_) {/* Best effort cleanup. */}
+  }
+
+  Future<bool> _serviceExists(String tunnel) async {
+    try {
+      final result = await Process.run(
+              'sc', ['query', serviceName(tunnel)])
+          .timeout(const Duration(seconds: 10));
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _waitForTunnel(String tunnel) async {
     for (var i = 0; i < 15; i++) {
       if (await _serviceRunning(tunnel)) return;
@@ -459,8 +487,13 @@ class WindowsVpn extends LinuxVpn {
       await _enableKillswitch(tunnel, endpoint,
           allowSsh: await isSshAllowed());
       killswitchOn = true;
+      // Run wireguard.exe directly (the script is already elevated, so no
+      // nested -Verb RunAs) and propagate its exit code: the old
+      // Start-Process call swallowed failures, so a failed install only
+      // surfaced 15 s later as "El túnel VPN no se activó."
       await _elevatedOrThrow([
-        'Start-Process -FilePath "$wireguardExe" -ArgumentList "/installtunnelservice", "${configFile.path}" -Verb RunAs -Wait',
+        '& "$wireguardExe" /installtunnelservice "${configFile.path}"',
+        'exit \$LASTEXITCODE',
       ], 'No se pudo instalar el túnel VPN. Revisa la autorización de administrador.');
       _windowsConnection = tunnel;
       await _waitForTunnel(tunnel);
@@ -473,11 +506,10 @@ class WindowsVpn extends LinuxVpn {
           await _disableKillswitch();
         } catch (_) {/* Best effort cleanup. */}
       }
-      try {
-        await _elevatedOrThrow([
-          'Start-Process -FilePath "$wireguardExe" -ArgumentList "/uninstalltunnelservice", "$tunnel" -Verb RunAs -Wait',
-        ], '');
-      } catch (_) {/* Best effort cleanup. */}
+      // Silent: only removes the service when it exists, so a failed
+      // install does not pop up wireguard.exe's "service does not exist"
+      // dialog on top of the real error.
+      await _uninstallTunnelSilent(tunnel);
       if (!await isKillSwitchEnabled()) await _removeManagementRoute();
       _windowsConnection = null;
       rethrow;
@@ -488,10 +520,13 @@ class WindowsVpn extends LinuxVpn {
   Future<void> disconnect() async {
     final id = await deviceId();
     final tunnel = _windowsConnection ?? tunnelName(id);
-    final wireguardExe = await _wireguardExe();
-    await _elevatedOrThrow([
-      'Start-Process -FilePath "$wireguardExe" -ArgumentList "/uninstalltunnelservice", "$tunnel" -Verb RunAs -Wait',
-    ], 'No se pudo desconectar la VPN.');
+    if (await _serviceExists(tunnel)) {
+      final wireguardExe = await _wireguardExe();
+      await _elevatedOrThrow([
+        '& "$wireguardExe" /uninstalltunnelservice "$tunnel"',
+        'exit \$LASTEXITCODE',
+      ], 'No se pudo desconectar la VPN.');
+    }
     if (await isConnected()) {
       throw const ApiException('No se pudo desconectar la VPN.');
     }

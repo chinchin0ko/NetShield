@@ -39,6 +39,13 @@ jobs:
         # la app para que el instalador lo incluya.
         run: dart compile exe bin/netshield.dart -o build/windows/x64/runner/Release/netshield.exe
 
+      - name: Download WireGuard installer
+        # El instalador de NetShield incluye el MSI oficial de WireGuard
+        # para instalarlo en silencio (ver windows/installer/netshield.iss).
+        run: |
+          Invoke-WebRequest -Uri "https://download.wireguard.com/windows-client/wireguard-amd64-1.1.1.msi" -OutFile "windows\installer\wireguard-amd64-1.1.1.msi"
+          Get-ChildItem windows\installer\wireguard-amd64-1.1.1.msi
+
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
