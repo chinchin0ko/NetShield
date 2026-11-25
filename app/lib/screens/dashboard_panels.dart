@@ -139,6 +139,7 @@ class _AlertsPanelState extends State<AlertsPanel> {
   Widget build(BuildContext context) {
     final alerts = widget.alerts;
     final visible = alerts?.where((item) => filter == 'all' || item['review_status'] == filter).toList();
+    final pendingCount = alerts?.where((item) => item['review_status'] == 'new').length ?? 0;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const PanelHeading('CENTRO DE SEGURIDAD', 'Alertas y amenazas', 'Consulta las alertas asociadas a tu cuenta.'),
       const SizedBox(height: 20),
@@ -151,8 +152,8 @@ class _AlertsPanelState extends State<AlertsPanel> {
       TextButton.icon(onPressed: widget.busy ? null : widget.onRefresh, icon: const Icon(Icons.refresh_rounded, size: 18), label: const Text('Actualizar')),
       const Text('Actualización automática cada 15 segundos.', style: TextStyle(color: _muted, fontSize: 13)),
       const SizedBox(height: 12),
-      Wrap(spacing: 6, runSpacing: 4, children: [
-        _filter('all', 'Todas'), _filter('new', 'Pendientes'), _filter('reviewed', 'Revisadas'), _filter('false_positive', 'Posibles falsos positivos'),
+      Wrap(spacing: 8, runSpacing: 8, children: [
+        _filter('all', 'Todas'), _filter('new', 'Pendientes', count: pendingCount), _filter('reviewed', 'Revisadas'), _filter('false_positive', 'Posibles falsos positivos'),
       ]),
       const SizedBox(height: 8),
       if (widget.loading && alerts == null) ...[
@@ -167,13 +168,30 @@ class _AlertsPanelState extends State<AlertsPanel> {
     ]);
   }
 
-  Widget _filter(String value, String label) => ChoiceChip(
-    label: Text(label), selected: filter == value,
-    onSelected: (_) => setState(() => filter = value),
-    labelStyle: const TextStyle(fontSize: 12, color: _ink),
-    selectedColor: const Color(0xffdce8d5),
-    backgroundColor: Colors.white.withValues(alpha: .45),
-    side: const BorderSide(color: Color(0xffdce5d5)),
-    showCheckmark: false,
-  );
+  Widget _filter(String value, String label, {int count = 0}) {
+    const labelStyle = TextStyle(fontSize: 14, color: _ink, fontWeight: FontWeight.w700);
+    final badgeText = count > 99 ? '99+' : '$count';
+    final labelWidget = count > 0
+        ? Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(label, style: labelStyle),
+            const SizedBox(width: 7),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xffa6433a), borderRadius: BorderRadius.circular(11)),
+              child: Text(badgeText, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+            ),
+          ])
+        : Text(label, style: labelStyle);
+    return ChoiceChip(
+      label: labelWidget,
+      selected: filter == value,
+      onSelected: (_) => setState(() => filter = value),
+      labelStyle: labelStyle,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      selectedColor: const Color(0xffdce8d5),
+      backgroundColor: Colors.white.withValues(alpha: .45),
+      side: const BorderSide(color: Color(0xffdce5d5)),
+      showCheckmark: false,
+    );
+  }
 }

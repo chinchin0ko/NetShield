@@ -110,6 +110,24 @@ void main() {
     expect(find.text('Detalles de la detección'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('Pending filter shows a count badge like messages', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi()..showAlert = true;
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: FakeVpn(api), notifier: FakeNotifier()));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Alertas'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pendientes'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('Controls remain reachable in a very short window', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
