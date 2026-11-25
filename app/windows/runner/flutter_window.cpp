@@ -32,7 +32,7 @@ bool FlutterWindow::OnCreate() {
   // Salir disconnected the VPN and cleared the session.
   window_channel_ =
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
-          flutter_controller_->engine(), "netshield/window",
+          flutter_controller_->engine()->messenger(), "netshield/window",
           &flutter::StandardMethodCodec::GetInstance());
   window_channel_->SetMethodCallHandler(
       [this](const flutter::MethodCall<flutter::EncodableValue>& call,
