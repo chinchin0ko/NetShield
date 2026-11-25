@@ -13,6 +13,9 @@ workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
 root="$workdir/root"
 mkdir -p "$root/opt/netshield" "$root/usr/bin" "$root/usr/lib/netshield" "$root/usr/share/polkit-1/actions" "$root/usr/lib/systemd/system" "$root/usr/share/applications" "$root/usr/share/icons/hicolor/scalable/apps" "$root/DEBIAN"
+"$app_dir/scripts/prepare-wstunnel.sh"
+install -m755 "$app_dir/build/transport/wstunnel" "$root/usr/lib/netshield/wstunnel"
+install -Dm644 "$app_dir/build/transport/LICENSE" "$root/usr/share/doc/netshield-vpn/wstunnel-LICENSE"
 cp -a "$bundle/." "$root/opt/netshield/"
 install -m755 "$app_dir/linux/netshield/killswitch.py" "$root/usr/lib/netshield/netshield-killswitch"
 install -m644 "$app_dir/packaging/arch/com.netshield.killswitch.packaged.policy" "$root/usr/share/polkit-1/actions/com.netshield.killswitch.packaged.policy"

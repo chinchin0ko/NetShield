@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:convert';
 import 'api_client.dart';
+import 'wstunnel_transport.dart';
 
 class TrafficUsage {
   const TrafficUsage(this.receivedBytes, this.sentBytes);
@@ -14,11 +15,7 @@ class LinuxVpn {
   LinuxVpn(this.api);
   final ApiClient api;
   String? _connection;
-  Process? _wstunnel;
-  // Local UDP port where the wstunnel client listens in TCP mode. The
-  // WireGuard endpoint is rewritten to it, so packets go through the
-  // WebSocket tunnel on TCP 80 instead of UDP (blocked on some networks).
-  static const _wstunnelLocalPort = 51821;
+  final WstunnelTransport _transport = WstunnelTransport();
 
   Future<String> deviceId() => _deviceId();
   Future<bool> isKillSwitchEnabled() => File('/run/netshield-lock/active').exists();
@@ -49,8 +46,8 @@ class LinuxVpn {
     await Process.run('chmod', ['600', file.path]);
   }
 
-  /// TCP mode (wstunnel): carry WireGuard over a WebSocket on TCP 80 when
-  /// the network blocks all UDP. Off by default; the user enables it in
+  /// TCP mode (wstunnel): carry WireGuard over a WebSocket seguro on TCP 443 when
+  /// the network blocks WireGuard UDP. Off by default; the user enables it in
   /// Ajustes. The setting applies on the next connection.
   Future<File> _tcpModeFile() async {
     final home = Platform.environment['HOME'];
@@ -80,8 +77,8 @@ class LinuxVpn {
   Future<String?> _wstunnelPath() async {
     final home = Platform.environment['HOME'];
     final candidates = <String>[
-      if (home != null) '$home/.local/share/netshield/wstunnel',
       '/usr/lib/netshield/wstunnel',
+      if (home != null) '$home/.local/share/netshield/wstunnel',
       '/usr/local/bin/wstunnel',
     ];
     for (final candidate in candidates) {
@@ -95,40 +92,15 @@ class LinuxVpn {
     return null;
   }
 
-  /// Start the wstunnel client (no root needed: it only listens on a
-  /// localhost UDP port and connects out to TCP 80). The server side is
-  /// The server side is ws://HOST:80/wstunnel, restricted to the WireGuard port.
-  Future<void> _startWstunnel() async {
-    await _stopWstunnel();
+  Future<void> _startWstunnel(String endpoint) async {
     final binary = await _wstunnelPath();
     if (binary == null) {
-      throw const ApiException('Falta el cliente wstunnel. Instala NetShield con el modo TCP o coloca el binario en ~/.local/share/netshield/wstunnel.');
+      throw const ApiException('Falta el transporte TCP. Reinstala el paquete de NetShield.');
     }
-    final host = api.baseUrl.host;
-    final process = await Process.start(binary, [
-      'client',
-      '-L',
-      'udp://127.0.0.1:$_wstunnelLocalPort:127.0.0.1:443?timeout_sec=0',
-      'ws://$host:80/wstunnel',
-    ]);
-    _wstunnel = process;
-    // Give the client a moment to open its UDP listener before WireGuard
-    // starts sending handshakes to it. If it fails to start, the WireGuard
-    // handshake below fails and reports it.
-    await Future<void>.delayed(const Duration(seconds: 2));
+    await _transport.start(binary, endpoint, api.baseUrl.host);
   }
 
-  Future<void> _stopWstunnel() async {
-    final process = _wstunnel;
-    _wstunnel = null;
-    if (process == null) return;
-    process.kill(ProcessSignal.sigterm);
-    try {
-      await process.exitCode.timeout(const Duration(seconds: 3));
-    } catch (_) {
-      process.kill(ProcessSignal.sigkill);
-    }
-  }
+  Future<void> _stopWstunnel() => _transport.stop();
 
   Future<File> _endpointFile() async {
     final home = Platform.environment['HOME'];
@@ -158,11 +130,43 @@ class LinuxVpn {
   /// failed probe does not establish whether the physical network or server
   /// is responsible, and says nothing about DNS or public Internet access.
   Future<bool?> gatewayReachable() async {
+    try { await _transport.ensureRunning(); } catch (_) { return false; }
     return _pingThroughTunnel('10.8.0.1');
   }
 
   /// An unanswered ICMP probe is inconclusive: some networks block ping.
   Future<bool?> internetReachable() => _pingThroughTunnel('1.1.1.1');
+
+  /// Obtain the exit IP using the VPN's source address, never an unbound
+  /// connection that could accidentally report the physical network's IP.
+  Future<String?> publicExitIp() async {
+    if (!Platform.isLinux || !await isKillSwitchEnabled()) return null;
+    HttpClient? client;
+    try {
+      final id = await _deviceId();
+      final name = 'ns${id.substring(0, 12)}';
+      final result = await Process.run('ip', ['-j', '-4', 'addr', 'show', 'dev', name]);
+      final devices = jsonDecode(result.stdout.toString()) as List;
+      final info = (devices.first as Map)['addr_info'] as List;
+      final local = InternetAddress((info.first as Map)['local'] as String);
+      client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+      client.connectionFactory = (uri, proxyHost, proxyPort) async {
+        if (proxyHost != null) throw const SocketException('Proxy not allowed');
+        final addresses = await InternetAddress.lookup(uri.host, type: InternetAddressType.IPv4);
+        return Socket.startConnect(addresses.first, uri.port, sourceAddress: local);
+      };
+      final request = await client.getUrl(Uri.parse('https://api.ipify.org')).timeout(const Duration(seconds: 5));
+      request.followRedirects = false;
+      final response = await request.close().timeout(const Duration(seconds: 5));
+      if (response.statusCode != 200) return null;
+      final text = await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 5));
+      return InternetAddress.tryParse(text.trim())?.address;
+    } catch (_) {
+      return null;
+    } finally {
+      client?.close(force: true);
+    }
+  }
 
   Future<bool?> _pingThroughTunnel(String address) async {
     final id = await _deviceId();
@@ -319,8 +323,8 @@ class LinuxVpn {
     return File('$home/.local/share/netshield/management-route.json');
   }
 
-  Future<void> _keepDevelopmentTunnel(String config) async {
-    if (api.baseUrl.host != '127.0.0.1' && api.baseUrl.host != 'localhost') return;
+  Future<void> _keepDevelopmentTunnel(String config, {bool tcpMode = false}) async {
+    if (!tcpMode && api.baseUrl.host != '127.0.0.1' && api.baseUrl.host != 'localhost') return;
     final endpoint = RegExp(r'^Endpoint\s*=\s*([0-9.]+):\d+\s*$', multiLine: true).firstMatch(config)?.group(1);
     if (endpoint == null || InternetAddress.tryParse(endpoint)?.type != InternetAddressType.IPv4) {
       throw const ApiException('No se encontró la dirección IPv4 del servidor VPN.');
@@ -376,16 +380,16 @@ class LinuxVpn {
     await Process.run('chmod', ['600', endpointFile.path]);
     final temp = await Directory.systemTemp.createTemp('netshield-');
     try {
-      await _keepDevelopmentTunnel(config);
       final tcpMode = await isTcpMode();
+      await _keepDevelopmentTunnel(config, tcpMode: tcpMode);
       var effectiveConfig = config;
       if (tcpMode) {
-        await _startWstunnel();
+        await _startWstunnel(endpoint);
         // Point WireGuard at the local wstunnel listener instead of the
-        // server: packets go UDP -> wstunnel -> WebSocket/TCP 80 -> server.
+        // server: packets go UDP -> wstunnel -> WebSocket/TLS/TCP 443 -> server.
         effectiveConfig = config.replaceFirst(
           RegExp(r'^Endpoint\s*=\s*[0-9.]+:\d+\s*$', multiLine: true),
-          'Endpoint = 127.0.0.1:$_wstunnelLocalPort',
+          'Endpoint = 127.0.0.1:${_transport.localPort}',
         );
       }
       final args = ['enable', name, endpoint];
@@ -411,11 +415,24 @@ class LinuxVpn {
           throw const ApiException('La VPN no pudo asegurar las rutas de red.');
         }
       }
-      final ping = await Process.run('ping', ['-4', '-c', '1', '-W', '5', '10.8.0.1']).timeout(const Duration(seconds: 8));
-      if (ping.exitCode != 0) throw const ApiException('No hubo respuesta a través del túnel VPN.');
+      if (tcpMode) {
+        final external = await Process.run('ip', ['-j', '-4', 'route', 'get', endpoint]);
+        final routes = jsonDecode(external.stdout.toString()) as List;
+        if (external.exitCode != 0 || routes.isEmpty || (routes.first as Map)['dev'] == name) {
+          throw const ApiException('El transporte TCP no conserva una ruta externa al servidor.');
+        }
+      }
+      var reachable = false;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        if (await gatewayReachable() == true) { reachable = true; break; }
+      }
+      if (!reachable) throw const ApiException('No hubo respuesta a través del túnel VPN. El bloqueo permanece activo.');
     } catch (_) {
+      // An activated interface without a working tunnel is not a connection.
+      // Keep the traffic lock, but remove this attempt's profile and child.
+      await _nm(['connection', 'delete', 'id', name], check: false);
       await _stopWstunnel();
-      if (!await isKillSwitchEnabled()) await _removeManagementRoute();
+      try { await _removeManagementRoute(); } catch (_) { /* Retry on disconnect. */ }
       rethrow;
     } finally {
       await temp.delete(recursive: true);

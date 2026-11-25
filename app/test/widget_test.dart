@@ -17,7 +17,9 @@ class FakeNotifier implements AlertNotifier {
 
 class FakeVpn extends LinuxVpn {
   FakeVpn(super.api);
-  bool connected = false, failDisconnect = false;
+  bool connected = false, failDisconnect = false, failConnect = false;
+  @override
+  Future<String?> publicExitIp() async => connected ? "203.0.113.20" : null;
   bool? gatewayResult = true, dnsResult = true, internetResult = true;
   @override
   Future<bool?> dnsResponds() async => dnsResult;
@@ -43,7 +45,7 @@ class FakeVpn extends LinuxVpn {
   @override
   Future<bool> isConnected() async => connected;
   @override
-  Future<void> connect(String token, String account) async { connected = true; connectedAccount = account; }
+  Future<void> connect(String token, String account) async { if (failConnect) { lockOverride = true; throw const ApiException('No hubo respuesta a través del túnel VPN.'); } connected = true; connectedAccount = account; }
   @override
   Future<void> disconnect() async { if (failDisconnect) throw const ApiException('falló'); connected = false; lockOverride = null; }
 }
@@ -83,6 +85,36 @@ class FakeApi extends ApiClient {
 }
 
 void main() {
+  testWidgets('Failed connection keeps the lock and never claims a verified exit', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = FakeApi();
+    final vpn = FakeVpn(api)..failConnect = true;
+    await tester.pumpWidget(NetShieldApp(api: api, vpn: vpn));
+    await tester.enterText(find.byType(TextField).at(0), 'demo');
+    await tester.enterText(find.byType(TextField).at(1), 'password');
+    await tester.tap(find.text('Entrar a NetShield'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Conectar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Conectado'), findsNothing);
+    expect(find.text('Tráfico bloqueado'), findsOneWidget);
+    expect(find.text('Túnel verificado'), findsNothing);
+    expect(vpn.lockOverride, isTrue);
+    await tester.pump(const Duration(seconds: 20));
+    expect(find.text('Conectado'), findsNothing);
+  });
+
+  testWidgets('Map never displays an old exit while the tunnel is unverified', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: VpnMapCard(connected: true, publicIp: '203.0.113.9')));
+    expect(find.textContaining('203.0.113.9'), findsOneWidget);
+    await tester.pumpWidget(const MaterialApp(home: VpnMapCard(connected: false, tunnelActive: true, publicIp: '203.0.113.9')));
+    expect(find.textContaining('203.0.113.9'), findsNothing);
+    expect(find.text('Sin verificar'), findsOneWidget);
+  });
+
   testWidgets('Dashboard fits a phone-sized screen', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -258,7 +290,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Active profile warns only after repeated gateway failures and recovers', (tester) async {
+  testWidgets('Active profile stops claiming connected at the first failed gateway probe and recovers', (tester) async {
     tester.view.physicalSize = const Size(1200, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -275,7 +307,8 @@ void main() {
     vpn.gatewayResult = false;
     await tester.pump(const Duration(seconds: 4));
     await tester.pump();
-    expect(find.text('VPN sin respuesta'), findsNothing);
+    expect(find.text('VPN sin respuesta'), findsOneWidget);
+    expect(find.text('Túnel verificado'), findsNothing);
     await tester.pump(const Duration(seconds: 16));
     await tester.pump();
     expect(find.text('VPN sin respuesta'), findsOneWidget);
@@ -559,7 +592,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byType(VpnMapCard));
     expect(find.byType(VpnMapCard), findsOneWidget);
-    expect(find.text('Tu ubicación real'), findsOneWidget);
+    expect(find.text('Servidor VPN'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -575,8 +608,8 @@ void main() {
     await tester.tap(find.text('Entrar a NetShield'));
     await tester.pumpAndSettle();
     expect(find.byType(VpnMapCard), findsOneWidget);
-    expect(find.text('Tu ubicación real'), findsOneWidget);
-    expect(find.text('Tuxtla Gutiérrez, Chiapas'), findsOneWidget);
+    expect(find.text('Servidor VPN'), findsOneWidget);
+    expect(find.text('Querétaro, México'), findsOneWidget);
     expect(find.text('Desconectado'), findsOneWidget);
     expect(find.text('En espera'), findsOneWidget);
     expect(find.byType(AnimatedAtmosphere), findsOneWidget);
@@ -585,8 +618,8 @@ void main() {
     await tester.tap(find.text('Conectar'));
     await tester.pumpAndSettle();
     expect(find.text('Conectado'), findsOneWidget);
-    expect(find.text('En línea'), findsOneWidget);
-    expect(find.text('Tu ubicación VPN'), findsOneWidget);
+    expect(find.text('Túnel verificado'), findsOneWidget);
+    expect(find.text('Servidor VPN'), findsOneWidget);
     expect(find.text('Querétaro, México'), findsOneWidget);
     expect(find.byType(VpnMapCard), findsOneWidget);
   });

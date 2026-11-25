@@ -66,6 +66,8 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   bool connectionTransition = false;
   bool gatewayChecking = false;
   bool? gatewayHealthy;
+  String? vpnPublicIp;
+  bool get tunnelReady => vpnConnected && (gatewayHealthy == true || Platform.isAndroid);
   int gatewayFailures = 0;
   bool? dnsHealthy, internetHealthy;
   int dnsFailures = 0, internetFailures = 0;
@@ -217,7 +219,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
           final active = await vpn.isConnected();
           final blocked = await vpn.isKillSwitchEnabled();
           if (mounted && !vpnLoading && (vpnConnected != active || trafficBlocked != blocked)) {
-            setState(() { if (vpnConnected != active) vpnGeneration++; vpnConnected = active; trafficBlocked = blocked; if (!active) { usage = null; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; } });
+            setState(() { if (vpnConnected != active) { vpnGeneration++; vpnPublicIp = null; gatewayHealthy = null; } vpnConnected = active; trafficBlocked = blocked; if (!active) { usage = null; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; } });
           }
           if (mounted && active) await refreshGatewayHealth();
           if (mounted && page == 2) await refreshUsage();
@@ -284,8 +286,10 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
       final results = reachable == true
           ? await Future.wait([vpn.dnsResponds(), vpn.internetReachable()])
           : <bool?>[null, null];
+      final exitIp = reachable == true ? (vpnPublicIp ?? await vpn.publicExitIp()) : null;
       if (!mounted || token != current || !vpnConnected || vpnGeneration != generation) return;
       setState(() {
+        vpnPublicIp = exitIp;
         final dns = results[0], internet = results[1];
         if (dns == true) { dnsFailures = 0; dnsHealthy = true; }
         else if (dns == false) { dnsFailures++; if (dnsFailures >= 2) dnsHealthy = false; }
@@ -298,7 +302,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
           gatewayHealthy = true;
         } else if (reachable == false) {
           gatewayFailures++;
-          if (gatewayFailures >= 2) gatewayHealthy = false;
+          gatewayHealthy = false;
         } else {
           gatewayHealthy = null;
           gatewayFailures = 0;
@@ -589,25 +593,17 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   }
 
   /// Toggle "Modo TCP" (desktop only). Se guarda y se aplica al volver a
-  /// conectar la VPN. Si el bloqueo esta activo, se reaplica para incluir
-  /// la excepcion TCP 80 al servidor.
+  /// conectar la VPN. No se retira el bloqueo para cambiar esta preferencia.
   Future<void> changeTcpMode(bool enabled) async {
     if (vpnLoading) return;
+    if (vpnConnected || trafficBlocked) {
+      setState(() => error = 'Desconecta la VPN y desactiva el bloqueo antes de cambiar el modo TCP.');
+      return;
+    }
     setState(() { vpnLoading = true; error = null; });
     try {
       await (vpn as dynamic).setTcpMode(enabled);
       if (mounted) setState(() => tcpMode = enabled);
-      if (trafficBlocked) {
-        try {
-          await vpn.setKillSwitch(false);
-          await vpn.setKillSwitch(true);
-        } catch (_) {
-          if (mounted) {
-            setState(() => error =
-                'El ajuste se guardó, pero no se pudo reaplicar el bloqueo ahora. Se aplicará la próxima vez que se active.');
-          }
-        }
-      }
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
@@ -628,16 +624,20 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
       if (vpnConnected || (trafficBlocked && !Platform.isAndroid)) { await vpn.disconnect(); } else { await vpn.connect(token!, signedInAs!); }
       final active = await vpn.isConnected();
       final blocked = await vpn.isKillSwitchEnabled();
-      if (mounted) setState(() { vpnGeneration++; vpnConnected = active; trafficBlocked = blocked; gatewayHealthy = vpnConnected ? true : null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; if (!vpnConnected) usage = null; });
+      if (mounted) setState(() { vpnGeneration++; vpnPublicIp = null; vpnConnected = active; trafficBlocked = blocked; gatewayHealthy = vpnConnected ? true : null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; if (!vpnConnected) usage = null; });
     } on ApiException catch (e) {
-      if (mounted) setState(() => error = e.message);
+      if (mounted) setState(() { error = e.message; gatewayHealthy = false; vpnPublicIp = null; });
     } catch (_) {
-      if (mounted) setState(() => error = 'No se pudo cambiar la conexión VPN.');
+      if (mounted) setState(() { error = 'No se pudo cambiar la conexión VPN.'; gatewayHealthy = false; vpnPublicIp = null; });
     } finally {
       try {
         final blocked = await vpn.isKillSwitchEnabled();
         if (mounted) setState(() => trafficBlocked = blocked);
       } catch (_) { /* Preserve the last known state. */ }
+      try {
+        final active = await vpn.isConnected();
+        if (mounted) setState(() => vpnConnected = active);
+      } catch (_) { /* Preserve failure rather than claim success. */ }
       if (mounted) setState(() { vpnLoading = false; connectionTransition = false; });
     }
   }
@@ -653,7 +653,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
       monitor?.cancel();
       alertsTimer?.cancel();
       alertSession++;
-      if (mounted) setState(() { unseenAlertIds.clear(); alertsInitialized = false; lastAlertId = 0; pushActive = false; pushStarting = null; vpnGeneration++; token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; usageHistory = null; historyUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertsChecking = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
+      if (mounted) setState(() { unseenAlertIds.clear(); alertsInitialized = false; lastAlertId = 0; pushActive = false; pushStarting = null; vpnGeneration++; vpnPublicIp = null; token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; usageHistory = null; historyUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertsChecking = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
       // Salir is the only way out while logged in: the VPN is already
       // disconnected and the session cleared above, so quit the app.
       // On Android and in tests there is no window channel, so this is a
@@ -886,14 +886,14 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
     const SizedBox(height: 12), Text('Hola, $signedInAs', style: const TextStyle(fontSize: 29, color: deep, fontWeight: FontWeight.w800, letterSpacing: -.8)),
     const SizedBox(height: 9), const Text('Tu sesión está lista.', style: TextStyle(color: Color(0xFF55655b), fontSize: 15)),
     const SizedBox(height: 36),
-    Center(child: PowerOrb(connected: vpnConnected, loading: connectionTransition)),
+    Center(child: PowerOrb(connected: tunnelReady, loading: connectionTransition)),
     const SizedBox(height: 25),
-    Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : (dnsHealthy == false ? 'DNS sin respuesta' : (internetHealthy == false ? 'Prueba de Internet sin respuesta' : 'Conectado'))) : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
+    Center(child: Text(vpnConnected ? (gatewayHealthy == false ? 'VPN sin respuesta' : (dnsHealthy == false ? 'DNS sin respuesta' : (internetHealthy == false ? 'Prueba de Internet sin respuesta' : (tunnelReady ? 'Conectado' : 'Comprobando conexión')))) : (trafficBlocked ? 'Tráfico bloqueado' : 'Desconectado'), style: const TextStyle(color: deep, fontWeight: FontWeight.w800, fontSize: 21))),
     const SizedBox(height: 8),
     Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null && !Platform.isAndroid ? 'Comprobando la conexión con el servidor VPN.' : (dnsHealthy == false ? 'El DNS de la VPN no respondió a la prueba.' : (internetHealthy == false ? 'La prueba de Internet no respondió; algunas redes bloquean este tipo de comprobación.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar tu VPN.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF55655b), fontSize: 15, height: 1.4))),
     const SizedBox(height: 30),
     SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: vpnConnected ? const Color(0xffa6433a) : forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked && !Platform.isAndroid ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
-    const SizedBox(height: 16), VpnMapCard(connected: vpnConnected),
+    const SizedBox(height: 16), VpnMapCard(connected: tunnelReady, tunnelActive: vpnConnected, publicIp: vpnPublicIp),
   ]);
 
   Widget tab(String title, bool active, VoidCallback onTap) => Expanded(child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(12), child: AnimatedContainer(duration: const Duration(milliseconds: 180), padding: const EdgeInsets.symmetric(vertical: 12), decoration: BoxDecoration(color: active ? Colors.white : Colors.transparent, borderRadius: BorderRadius.circular(12), boxShadow: active ? [BoxShadow(color: deep.withValues(alpha: .07), blurRadius: 8, offset: const Offset(0, 3))] : []), child: Text(title, textAlign: TextAlign.center, style: TextStyle(color: active ? deep : const Color(0xFF84927f), fontSize: 12, fontWeight: FontWeight.w800)))));

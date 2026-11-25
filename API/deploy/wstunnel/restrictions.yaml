@@ -1,0 +1,12 @@
+# Only encrypted WireGuard datagrams may reach the local VPN listener.
+# WireGuard authenticates the peer; no TCP or reverse proxy is allowed.
+restrictions:
+  - name: netshield-wireguard
+    match:
+      - !PathPrefix '^wstunnel$'
+    allow:
+      - !Tunnel
+        protocol: [Udp]
+        port: [443]
+        host: '^127\.0\.0\.1$'
+        cidr: [127.0.0.1/32]

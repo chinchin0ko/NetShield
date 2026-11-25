@@ -1,18 +1,20 @@
 pkgname=netshield-vpn
 pkgver=0.1.0
-pkgrel=25
+pkgrel=26
 install=netshield.install
 pkgdesc='NetShield VPN desktop client'
 arch=('x86_64')
 url='https://github.com/chinchin0ko/NetShield'
 license=('custom')
-depends=('gtk3' 'networkmanager' 'wireguard-tools' 'nftables' 'polkit' 'python' 'iputils' 'hicolor-icon-theme' 'libnotify')
+depends=('gtk3' 'networkmanager' 'wireguard-tools' 'nftables' 'polkit' 'python' 'iputils' 'hicolor-icon-theme' 'libnotify' 'iproute2')
 source=('netshield-arch-input.tar.gz')
 sha256sums=('@SHA256@')
 options=('!strip')
 
 package() {
   install -d "$pkgdir/opt/netshield" "$pkgdir/usr/bin" "$pkgdir/usr/lib/netshield"
+  install -Dm755 "$srcdir/input/wstunnel" "$pkgdir/usr/lib/netshield/wstunnel"
+  install -Dm644 "$srcdir/input/wstunnel-LICENSE" "$pkgdir/usr/share/licenses/$pkgname/wstunnel-LICENSE"
   cp -a "$srcdir/input/bundle/." "$pkgdir/opt/netshield/"
   install -Dm755 "$srcdir/input/netshield-killswitch" "$pkgdir/usr/lib/netshield/netshield-killswitch"
   install -Dm644 "$srcdir/input/netshield.policy" "$pkgdir/usr/share/polkit-1/actions/com.netshield.killswitch.packaged.policy"

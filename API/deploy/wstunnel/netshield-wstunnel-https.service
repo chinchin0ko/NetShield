@@ -1,0 +1,21 @@
+[Unit]
+Description=NetShield WireGuard transport behind HTTPS proxy
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# This is the private gateway of the existing Caddy Docker network.
+ExecStart=/usr/local/bin/wstunnel --log-lvl WARN server ws://172.18.0.1:18081 --restrict-config /etc/netshield/wstunnel-restrictions.yaml
+Restart=on-failure
+RestartSec=3
+DynamicUser=true
+User=netshield-wss
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

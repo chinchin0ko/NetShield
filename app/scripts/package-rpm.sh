@@ -29,6 +29,9 @@ else
   echo '  dart compile exe bin/netshield.dart -o build/cli/netshield' >&2
   exit 1
 fi
+"$app_dir/scripts/prepare-wstunnel.sh"
+install -m755 "$app_dir/build/transport/wstunnel" "$workdir/input/wstunnel"
+install -m644 "$app_dir/build/transport/LICENSE" "$workdir/input/wstunnel-LICENSE"
 tar -C "$workdir/input" -czf "$workdir/rpmbuild/SOURCES/netshield-rpm-input.tar.gz" .
 sed -e "s/@VERSION@/$version/" -e "s/@RELEASE@/$release/" "$app_dir/packaging/fedora/netshield-vpn.spec" > "$workdir/rpmbuild/SPECS/netshield-vpn.spec"
 rpmbuild --define "_topdir $workdir/rpmbuild" -bb "$workdir/rpmbuild/SPECS/netshield-vpn.spec"

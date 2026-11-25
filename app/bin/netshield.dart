@@ -309,6 +309,18 @@ Future<void> _cmdConnect(ApiClient api, LinuxVpn vpn) async {
   stdout.writeln(blocked
       ? _dim('Bloqueo de tráfico: activado.')
       : _warn('Bloqueo de tráfico: desactivado. Actívalo con: netshield killswitch on'));
+  // In TCP mode the VPN rides a wstunnel child process owned by this CLI.
+  // Stay in the foreground supervising it: if the CLI exited, the transport
+  // would be left unsupervised and a crash would silently break the tunnel.
+  // Ctrl+C disconnects cleanly.
+  final tcpMode = await vpn.isTcpMode().catchError((_) => false);
+  if (tcpMode) {
+    stdout.writeln(_dim('Modo TCP: supervisando el transporte. Pulsa Ctrl+C para desconectar.'));
+    await ProcessSignal.sigint.watch().first;
+    stdout.writeln('');
+    await _withSpinner('Desconectando la VPN', () => vpn.disconnect());
+    stdout.writeln(_ok('Desconectado.'));
+  }
 }
 
 Future<void> _cmdDisconnect(LinuxVpn vpn) async {

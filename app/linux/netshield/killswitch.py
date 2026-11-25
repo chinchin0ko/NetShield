@@ -8,9 +8,9 @@ port, and TCP 443 to Tailscale's controlplane / DERP infrastructure. This is
 opt-in and off by default: it deliberately weakens the lock, so the app only
 enables it when the user turns on "Permitir conexiones SSH" in Ajustes.
 
-Optional TCP mode: `enable <iface> <endpoint> tcp-mode` also permits TCP 80
+Optional TCP mode: `enable <iface> <endpoint> tcp-mode` also permits TCP 443
 to the VPN server, so the wstunnel client can carry WireGuard over a
-WebSocket on TCP 80 when the network blocks all UDP. Both flags may be
+WebSocket on TCP 443 when the network blocks all UDP. Both flags may be
 combined: `enable <iface> <endpoint> allow-ssh tcp-mode`.
 """
 import ipaddress
@@ -124,8 +124,8 @@ def main(argv):
     tcp_rule = ''
     if tcp_mode:
         tcp_rule = f'''  # TCP mode (wstunnel): the WireGuard tunnel rides a WebSocket on TCP
-  # 80 to the VPN server, so that traffic must be allowed outside the VPN.
-  ip daddr {endpoint} tcp dport 80 accept
+  # 443 to the VPN server, so that traffic must be allowed outside the VPN.
+  ip daddr {endpoint} tcp dport 443 accept
 '''
     rules = f'''table inet {TABLE} {{
 {ssh_set} chain output {{

@@ -1,17 +1,9 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:material_ui/material_ui.dart';
 
-/// Animated mini-map of the VPN connection (desktop only for now).
-/// Two phases, never both points at once:
-///  - Disconnected: only YOUR real location (Tuxtla Gutierrez, Chiapas)
-///    and your real public IP, fetched from api.ipify.org.
-///  - When you connect: the marker flies from your real location to the
-///    server in Queretaro (Oracle Cloud mx-queretaro-1, 20.5881, -100.3881)
-///    along an arc, then only the server marker stays, pulsing.
-/// The animations stay off under `flutter test` so widget tests settle.
-
+/// Server location, with connection health and a tunnel-bound IP supplied by
+/// the connection controller. This widget never queries the physical network.
 const _mapInk = Color(0xff344e41);
 const _mapMuted = Color(0xff55655b);
 const _mapGreen = Color(0xff3a5a40);
@@ -33,38 +25,23 @@ Offset _place(Size size, Offset n) {
 final _origin = _ll(-93.1, 16.75); // Tuxtla Gutierrez, Chiapas (you)
 final _dest = _ll(-100.3881, 20.5881); // Queretaro server
 
-Future<String?> _fetchPublicIp() async {
-  try {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
-    final request = await client.getUrl(Uri.parse('https://api.ipify.org'));
-    final response = await request.close().timeout(const Duration(seconds: 6));
-    final body = await response.transform(const Utf8Decoder()).join().timeout(const Duration(seconds: 6));
-    client.close();
-    final ip = body.trim();
-    return ip.isEmpty ? null : ip;
-  } catch (_) {
-    return null;
-  }
-}
-
 class VpnMapCard extends StatefulWidget {
-  const VpnMapCard({super.key, required this.connected});
+  const VpnMapCard({super.key, required this.connected, this.tunnelActive = false, this.publicIp});
   final bool connected;
+  final bool tunnelActive;
+  final String? publicIp;
   @override
   State<VpnMapCard> createState() => _VpnMapCardState();
 }
 
-class _VpnMapCardState extends State<VpnMapCard> with SingleTickerProviderStateMixin {
+class _VpnMapCardState extends State<VpnMapCard> with TickerProviderStateMixin {
   AnimationController? _fly;
   AnimationController? _rings;
-  String? _publicIp;
-  bool _ipLoading = false;
 
   @override
   void initState() {
     super.initState();
     _syncAnimations();
-    _refreshIp();
   }
 
   @override
@@ -72,8 +49,7 @@ class _VpnMapCardState extends State<VpnMapCard> with SingleTickerProviderStateM
     super.didUpdateWidget(oldWidget);
     if (oldWidget.connected != widget.connected) {
       _syncAnimations();
-      _refreshIp();
-    }
+      }
   }
 
   void _syncAnimations() {
@@ -95,20 +71,6 @@ class _VpnMapCardState extends State<VpnMapCard> with SingleTickerProviderStateM
     } else {
       _fly?.reverse();
     }
-  }
-
-  Future<void> _refreshIp() async {
-    // No network lookups under `flutter test`; the card just shows the
-    // location text without the IP there.
-    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
-    if (_ipLoading) return;
-    _ipLoading = true;
-    final ip = await _fetchPublicIp();
-    if (!mounted) return;
-    setState(() {
-      _publicIp = ip;
-      _ipLoading = false;
-    });
   }
 
   Widget _mapContent(double flyProgress, double ringProgress) => Container(
@@ -135,7 +97,7 @@ class _VpnMapCardState extends State<VpnMapCard> with SingleTickerProviderStateM
     // Under test, or before the first frame, snap to the current state.
     final flyProgress = fly?.value ?? (widget.connected ? 1.0 : 0.0);
     final ringProgress = rings?.value ?? 0.0;
-    final ip = _publicIp;
+    final ip = widget.connected ? widget.publicIp : null;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -149,11 +111,11 @@ class _VpnMapCardState extends State<VpnMapCard> with SingleTickerProviderStateM
         Row(children: [
           const Icon(Icons.map_outlined, color: _mapGreen, size: 20),
           const SizedBox(width: 10),
-          Expanded(child: Text(widget.connected ? 'Tu ubicación VPN' : 'Tu ubicación real', style: const TextStyle(color: _mapInk, fontWeight: FontWeight.w800, fontSize: 15))),
+          Expanded(child: Text('Servidor VPN', style: const TextStyle(color: _mapInk, fontWeight: FontWeight.w800, fontSize: 15))),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(color: (widget.connected ? _mapGreen : _mapMuted).withValues(alpha: .12), borderRadius: BorderRadius.circular(20)),
-            child: Text(widget.connected ? 'En línea' : 'En espera', style: TextStyle(color: widget.connected ? _mapGreen : _mapMuted, fontWeight: FontWeight.w800, fontSize: 11)),
+            child: Text(widget.connected ? 'Túnel verificado' : (widget.tunnelActive ? 'Sin verificar' : 'En espera'), style: TextStyle(color: widget.connected ? _mapGreen : _mapMuted, fontWeight: FontWeight.w800, fontSize: 11)),
           ),
         ]),
         const SizedBox(height: 12),
@@ -172,14 +134,14 @@ class _VpnMapCardState extends State<VpnMapCard> with SingleTickerProviderStateM
         ),
         const SizedBox(height: 12),
         Text(
-          widget.connected ? 'Querétaro, México' : 'Tuxtla Gutiérrez, Chiapas',
+          'Querétaro, México',
           style: const TextStyle(color: _mapInk, fontWeight: FontWeight.w800, fontSize: 15),
         ),
         const SizedBox(height: 3),
         Text(
           widget.connected
-              ? (ip == null ? 'Tu tráfico sale por el servidor de Oracle Cloud en Querétaro.' : 'Tu IP con la VPN: $ip · Servidor de Oracle Cloud en Querétaro.')
-              : (ip == null ? 'Esta es tu ubicación aproximada sin la VPN.' : 'Tu IP real: $ip · Ubicación aproximada sin la VPN.'),
+              ? (ip == null ? 'Túnel verificado. IP de salida todavía no verificada.' : 'IP de salida verificada: $ip · Servidor en Querétaro.')
+              : 'Ubicación del servidor. No hay una salida VPN verificada.',
           style: const TextStyle(color: _mapMuted, fontSize: 13, height: 1.4),
         ),
       ]),

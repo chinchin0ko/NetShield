@@ -25,6 +25,9 @@ else
   echo '  dart compile exe bin/netshield.dart -o build/cli/netshield' >&2
   exit 1
 fi
+"$app_dir/scripts/prepare-wstunnel.sh"
+install -m755 "$app_dir/build/transport/wstunnel" "$workdir/input/wstunnel"
+install -m644 "$app_dir/build/transport/LICENSE" "$workdir/input/wstunnel-LICENSE"
 tar -C "$workdir" -czf "$workdir/netshield-arch-input.tar.gz" input
 hash=$(sha256sum "$workdir/netshield-arch-input.tar.gz" | cut -d' ' -f1)
 sed "s/@SHA256@/$hash/" "$app_dir/packaging/arch/PKGBUILD.template" > "$workdir/PKGBUILD"

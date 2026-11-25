@@ -8,7 +8,7 @@ Source0:        netshield-rpm-input.tar.gz
 BuildArch:      x86_64
 # El paquete solo trae binarios ya compilados, sin fuentes para depurar.
 %global debug_package %{nil}
-Requires:       gtk3, NetworkManager, wireguard-tools, nftables, polkit, python3, iputils, hicolor-icon-theme, libnotify
+Requires:       gtk3, NetworkManager, wireguard-tools, nftables, polkit, python3, iputils, hicolor-icon-theme, libnotify, iproute
 
 %description
 Cliente VPN de desarrollo con bloqueo de tráfico (killswitch),
@@ -20,6 +20,8 @@ Funciona en Fedora, RHEL y derivadas.
 
 %install
 install -d %{buildroot}/opt/netshield %{buildroot}/usr/bin %{buildroot}/usr/lib/netshield
+install -Dm755 wstunnel %{buildroot}/usr/lib/netshield/wstunnel
+install -Dm644 wstunnel-LICENSE %{buildroot}/usr/share/licenses/netshield-vpn/wstunnel-LICENSE
 cp -a bundle/. %{buildroot}/opt/netshield/
 install -Dm755 netshield-killswitch %{buildroot}/usr/lib/netshield/netshield-killswitch
 install -Dm644 netshield.policy %{buildroot}/usr/share/polkit-1/actions/com.netshield.killswitch.packaged.policy
@@ -34,6 +36,8 @@ printf '#!/bin/sh\nexec /opt/netshield/netshield_app "$@"\n' > %{buildroot}/usr/
 chmod 755 %{buildroot}/usr/bin/netshield-vpn
 
 %files
+/usr/lib/netshield/wstunnel
+/usr/share/licenses/netshield-vpn/wstunnel-LICENSE
 /opt/netshield/
 /usr/bin/netshield-vpn
 /usr/bin/netshield
