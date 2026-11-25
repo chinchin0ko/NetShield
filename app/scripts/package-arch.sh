@@ -16,6 +16,15 @@ install -m644 "$app_dir/packaging/arch/netshield.desktop" "$workdir/input/netshi
 install -m644 "$app_dir/packaging/arch/netshield-lock-restore.service" "$workdir/input/netshield-lock-restore.service"
 install -m644 "$app_dir/packaging/arch/netshield.install" "$workdir/netshield.install"
 install -m644 "$app_dir/assets/netshield.svg" "$workdir/input/netshield.svg"
+# El CLI (bin/netshield.dart compilado a binario nativo) es obligatorio:
+# lo compila build-packages-docker.sh a build/cli/netshield (o dart compile exe).
+if [[ -x "$app_dir/build/cli/netshield" ]]; then
+  install -m755 "$app_dir/build/cli/netshield" "$workdir/input/netshield-cli"
+else
+  echo 'Falta build/cli/netshield. Compílalo con:' >&2
+  echo '  dart compile exe bin/netshield.dart -o build/cli/netshield' >&2
+  exit 1
+fi
 tar -C "$workdir" -czf "$workdir/netshield-arch-input.tar.gz" input
 hash=$(sha256sum "$workdir/netshield-arch-input.tar.gz" | cut -d' ' -f1)
 sed "s/@SHA256@/$hash/" "$app_dir/packaging/arch/PKGBUILD.template" > "$workdir/PKGBUILD"
