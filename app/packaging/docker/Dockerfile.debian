@@ -1,0 +1,14 @@
+# Builder para el paquete .deb (Debian/Ubuntu/Kali).
+# Compila la app con las librerías de Debian 12 para máxima compatibilidad.
+FROM debian:12
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential clang cmake ninja-build pkg-config \
+    libgtk-3-dev liblzma-dev git curl unzip xz-utils zip file ca-certificates \
+    dpkg-dev \
+ && rm -rf /var/lib/apt/lists/*
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g ${GID} chinchin && useradd -m -u ${UID} -g ${GID} -s /bin/bash chinchin
+USER chinchin
+WORKDIR /home/chinchin
+ENV PATH="/opt/flutter/bin:${PATH}"

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=NetShield VPN
+Comment=Cliente VPN de desarrollo
+Exec=/usr/bin/netshield-vpn
+Icon=netshield
+Terminal=false
+Categories=Network;
+StartupNotify=true
+StartupWMClass=com.netshield.netshield_app

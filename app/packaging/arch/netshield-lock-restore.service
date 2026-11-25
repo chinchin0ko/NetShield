@@ -1,0 +1,15 @@
+[Unit]
+Description=Restore NetShield traffic lock before networking
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target NetworkManager.service
+Wants=network-pre.target
+ConditionPathExists=/var/lib/netshield-lock/active.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/netshield/netshield-killswitch restore
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,30 @@
+[Unit]
+Description=NetShield isolated WireGuard development controller
+After=network.target
+
+[Service]
+Type=simple
+User=netshield-wg
+Group=netshield-wg
+ExecStart=/usr/bin/python3 /opt/netshield-wg-dev/agent.py
+RuntimeDirectory=netshield-wg-dev
+RuntimeDirectoryMode=0700
+StateDirectory=netshield-wg-dev
+StateDirectoryMode=0700
+UMask=0077
+PrivateNetwork=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+LockPersonality=true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

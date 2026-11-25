@@ -1,0 +1,9 @@
+# Staging only: no reverse_proxy and no API exposure.
+api.netshield.lat {
+	header {
+		Cache-Control "no-store"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+	respond "NetShield: API en preparación." 503
+}

@@ -1,0 +1,23 @@
+[Unit]
+Description=NetShield Suricata server alert collector
+After=network-online.target suricata.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/lib/netshield/suricata_collector.py
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/netshield-suricata
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

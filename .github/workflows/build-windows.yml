@@ -1,0 +1,54 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Build CLI
+        # El CLI (Dart puro) se compila a un .exe nativo y se deja junto a
+        # la app para que el instalador lo incluya.
+        run: dart compile exe bin/netshield.dart -o build/windows/x64/runner/Release/netshield.exe
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" windows\installer\netshield.iss
+          Get-ChildItem windows\installer-output\
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: netshield-windows-installer
+          path: app/windows/installer-output/netshield-setup-*.exe

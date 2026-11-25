@@ -1,0 +1,14 @@
+[Unit]
+Description=Update and validate NetShield VPN threat signatures
+After=network-online.target netshield-vpn-sensor.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/netshield/update_vpn_sensor_rules.sh
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/netshield-vpn-sensor /var/lib/netshield-vpn-sensor /etc/netshield-vpn-sensor-ar /var/lib/netshield-vpn-sensor-ar

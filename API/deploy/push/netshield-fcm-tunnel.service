@@ -1,0 +1,20 @@
+[Unit]
+Description=NetShield restricted tunnel to Firebase relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=netshield-api
+Group=netshield-api
+ExecStart=/usr/bin/ssh -N -T -i /var/lib/netshield-fcm/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/var/lib/netshield-wg-bridge/known_hosts -o ExitOnForwardFailure=yes -o ServerAliveInterval=20 -o ServerAliveCountMax=3 -L 127.0.0.1:18888:127.0.0.1:18888 ubuntu@10.0.0.124
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
