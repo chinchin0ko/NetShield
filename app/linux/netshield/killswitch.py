@@ -119,7 +119,7 @@ def main(argv):
   # retry IPv4 promptly; no IPv6 packet may leave through any interface.
   meta nfproto ipv6 reject with icmpv6 type no-route
 {ssh_rules}  oifname "{interface}" accept
-  ip daddr {endpoint} udp dport 51820 accept
+  ip daddr {endpoint} udp accept
  }}
 }}
 '''

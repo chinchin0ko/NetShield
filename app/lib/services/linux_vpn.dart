@@ -280,7 +280,7 @@ class LinuxVpn {
       throw const ApiException('La configuración VPN no incluye rutas completas IPv4 e IPv6.');
     }
     final name = 'ns${id.substring(0, 12)}';
-    final endpoint = RegExp(r'^Endpoint\s*=\s*([0-9.]+):51820\s*$', multiLine: true).firstMatch(config)?.group(1);
+    final endpoint = RegExp(r'^Endpoint\s*=\s*([0-9.]+):\d+\s*$', multiLine: true).firstMatch(config)?.group(1);
     if (endpoint == null || InternetAddress.tryParse(endpoint)?.type != InternetAddressType.IPv4) {
       throw const ApiException('La dirección del servidor VPN es inválida.');
     }

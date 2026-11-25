@@ -26,8 +26,10 @@ class WindowsVpn extends LinuxVpn {
   static String serviceName(String tunnel) => 'WireGuardTunnel\$$tunnel';
 
   /// IPv4 endpoint (host only) from a WireGuard config template.
+  /// The port is not fixed: the server may listen on 51820, 443 or any
+  /// other UDP port, so any numeric port is accepted here.
   static String? parseEndpoint(String config) =>
-      RegExp(r'^Endpoint\s*=\s*([0-9.]+):51820\s*$', multiLine: true)
+      RegExp(r'^Endpoint\s*=\s*([0-9.]+):\d+\s*$', multiLine: true)
           .firstMatch(config)
           ?.group(1);
 
@@ -278,7 +280,7 @@ class WindowsVpn extends LinuxVpn {
       'Remove-NetFirewallRule -DisplayName "$_rulePrefix*" -ErrorAction SilentlyContinue',
       'Set-NetFirewallProfile -Profile Domain,Private,Public -DefaultOutboundAction Block',
       'New-NetFirewallRule -DisplayName "$_rulePrefix (tunel)" -Direction Outbound -Action Allow -InterfaceAlias "$tunnel" -Profile Any | Out-Null',
-      'New-NetFirewallRule -DisplayName "$_rulePrefix (servidor)" -Direction Outbound -Action Allow -Protocol UDP -RemotePort 51820 -RemoteAddress $endpoint -Profile Any | Out-Null',
+      'New-NetFirewallRule -DisplayName "$_rulePrefix (servidor)" -Direction Outbound -Action Allow -Protocol UDP -RemoteAddress $endpoint -Profile Any | Out-Null',
       'New-NetFirewallRule -DisplayName "$_rulePrefix (DHCP)" -Direction Outbound -Action Allow -Protocol UDP -LocalPort 68 -RemotePort 67 -Profile Any | Out-Null',
     ];
     if (allowSsh) {

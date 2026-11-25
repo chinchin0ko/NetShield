@@ -28,6 +28,13 @@ void main() {
     expect(WindowsVpn.parseDns('[Interface]\nPrivateKey = x\n'), null);
   });
 
+  test('endpoint parses when the server listens on UDP 443', () {
+    // The server moved from 51820 to 443 so restrictive networks (which
+    // block 51820) still let the tunnel through; the port must not be fixed.
+    final config443 = _config.replaceFirst(':51820', ':443');
+    expect(WindowsVpn.parseEndpoint(config443), '203.0.113.10');
+  });
+
   test('transfer parses wg show output', () {
     final usage = WindowsVpn.parseTransfer(
         'abcdefghijklmnopqrstuvwxyz0123456789abcd=\t1234\t5678\n');
