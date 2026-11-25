@@ -38,7 +38,7 @@ install -m755 "$app_dir/packaging/debian/postinst" "$root/DEBIAN/postinst"
 install -m755 "$app_dir/packaging/debian/prerm" "$root/DEBIAN/prerm"
 install -m755 "$app_dir/packaging/debian/postrm" "$root/DEBIAN/postrm"
 mkdir -p "$app_dir/dist"
-out="$app_dir/dist/netshield-vpn-dev_${version}_amd64.deb"
+out="$app_dir/dist/netshield-vpn_${version}_amd64.deb"
 if command -v dpkg-deb >/dev/null; then
   dpkg-deb --build --root-owner-group "$root" "$out"
 else

@@ -1,11 +1,11 @@
-Package: netshield-vpn-dev
+Package: netshield-vpn
 Version: @VERSION@
 Section: net
 Priority: optional
 Architecture: amd64
 Depends: libgtk-3-0, network-manager, wireguard-tools, nftables, polkitd | policykit-1, python3, iputils-ping, hicolor-icon-theme, libnotify-bin
 Maintainer: NetShield <dev@netshield.lat>
-Description: NetShield VPN development desktop client
+Description: NetShield VPN desktop client
  Cliente VPN de desarrollo con bloqueo de tráfico (killswitch),
  alertas de seguridad y notificaciones de escritorio.
  Incluye el CLI `netshield` para controlar la VPN desde la terminal.

@@ -30,7 +30,7 @@ else
   exit 1
 fi
 tar -C "$workdir/input" -czf "$workdir/rpmbuild/SOURCES/netshield-rpm-input.tar.gz" .
-sed -e "s/@VERSION@/$version/" -e "s/@RELEASE@/$release/" "$app_dir/packaging/fedora/netshield-vpn-dev.spec" > "$workdir/rpmbuild/SPECS/netshield-vpn-dev.spec"
-rpmbuild --define "_topdir $workdir/rpmbuild" -bb "$workdir/rpmbuild/SPECS/netshield-vpn-dev.spec"
+sed -e "s/@VERSION@/$version/" -e "s/@RELEASE@/$release/" "$app_dir/packaging/fedora/netshield-vpn.spec" > "$workdir/rpmbuild/SPECS/netshield-vpn.spec"
+rpmbuild --define "_topdir $workdir/rpmbuild" -bb "$workdir/rpmbuild/SPECS/netshield-vpn.spec"
 cp "$workdir/rpmbuild/RPMS/x86_64/"*.rpm "$app_dir/dist/"
 printf 'Paquete en %s/dist\n' "$app_dir"

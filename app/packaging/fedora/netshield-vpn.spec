@@ -1,7 +1,7 @@
-Name:           netshield-vpn-dev
+Name:           netshield-vpn
 Version:        @VERSION@
 Release:        @RELEASE@%{?dist}
-Summary:        NetShield VPN development desktop client
+Summary:        NetShield VPN desktop client
 License:        Proprietary
 URL:            https://github.com/chinchin0ko/NetShield
 Source0:        netshield-rpm-input.tar.gz
