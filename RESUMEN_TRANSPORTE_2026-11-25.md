@@ -14,9 +14,10 @@ navegación por la VPN. La prueba WSS también verifica interrupción y recupera
 sin retirar el bloqueo. Los cambios principales están en `751f9f8`, incorporados
 por otra sesión; se comprobó la instalación de `netshield-vpn 0.1.0-26`.
 La supervisión adicional del CLI y las pruebas de rutas se completaron después.
-El paquete 0.1.0-27 ya está generado y revisado. KDE rechazó la primera solicitud
-de instalación; queda pendiente esa autorización y sigue instalada la versión
-0.1.0-26. La red universitaria todavía requiere una prueba presencial.
+El paquete 0.1.0-27 quedó instalado después de la autorización del usuario.
+`pacman -Qkk` verificó 55 archivos sin alteraciones; los hashes del CLI, la app
+y wstunnel instalados coinciden con los artefactos compilados. La red universitaria
+todavía requiere una prueba presencial.
 
 El usuario está usando los datos de su teléfono para mantener la sesión de trabajo.
 No cambiarlo a la red universitaria ni activar una VPN sobre su conexión de trabajo
@@ -268,10 +269,8 @@ Comprobaciones adicionales:
 
 - Código principal: commit `751f9f8`, ya presente en la rama remota al revisarlo.
   No atribuir a esta sesión el commit o instalación realizados por la otra sesión.
-- Instalar el paquete generado `app/dist/netshield-vpn-0.1.0-27-x86_64.pkg.tar.zst`
-  para incorporar el supervisor del CLI. La primera autorización KDE fue
-  rechazada; se solicitó confirmar una nueva solicitud. Comprobar después con
-  `pacman -Q netshield-vpn` y hashes del binario instalado.
+- Instalación completada: `netshield-vpn 0.1.0-27`, con el supervisor del CLI.
+  Verificados los archivos mediante pacman y los hashes de los tres binarios.
 - La prueba de red real utiliza WireGuard en namespace; no sustituye probar
   NetworkManager y la interfaz gráfica en la conexión de trabajo. No se activó
   una VPN ni se cambió de Wi-Fi en el equipo del usuario durante estas pruebas.
@@ -282,6 +281,21 @@ Comprobaciones adicionales:
   para utilizar los modos ya verificados UDP/51820 y WSS/443.
 - El Android modificado por el usuario no se ha validado ni entregado como parte
   de esta corrección Linux. No anunciar paridad de WSS o cambios Android aquí.
+
+## Simulación añadida de restricción universitaria
+
+Ejecutable: `API/scripts/test-university-network.sh`. Documentación:
+`docs/simulacion-red-universidad.md`.
+
+Prueba real completada: UDP inicial, DNS y HTTPS correctos; activación de descarte
+silencioso en el relay aislado (6 datagramas descartados en la ejecución), fallo
+de la puerta de enlace con bloqueo conservado, cambio del mismo peer a WSS/443,
+DNS y HTTPS recuperados con salida 140.84.183.78. También pasó la interrupción y
+recuperación posterior de WSS. El peer de prueba se revocó al terminar.
+
+No modifica el firewall/rutas del host ni controla la ventana de NetShield.
+Simula pérdida de UDP directo, no DPI ni la política exacta de la universidad.
+No se requiere reinstalar la app para ejecutar este laboratorio.
 
 ## Cambios preexistentes que deben conservarse
 

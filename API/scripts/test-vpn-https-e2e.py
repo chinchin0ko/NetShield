@@ -39,7 +39,7 @@ def api(path, payload, token=None):
         return json.loads(body) if body else None
 
 
-def relay(unix_path, peer_path, udp_target, stop, child=False):
+def relay(unix_path, peer_path, udp_target, stop, child=False, policy=None):
     us = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
     us.bind(str(unix_path))
     udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -59,6 +59,11 @@ def relay(unix_path, peer_path, udp_target, stop, child=False):
                             if last:
                                 udp.sendto(data, last)
                         else:
+                            target = policy['target'] if policy else udp_target
+                            if policy and policy['block_udp'] and target[0] != '127.0.0.1':
+                                policy['dropped'] += 1
+                                continue
+                            udp.connect(target)
                             udp.send(data)
                     else:
                         data, last = udp.recvfrom(65535)
@@ -94,11 +99,32 @@ def child_test(work):
     else:
         raise RuntimeError('gateway did not answer')
     print('OK: authenticated WireGuard handshake and gateway', flush=True)
-    answers = command('dig', '@'+config['dns'], 'api.ipify.org', 'A', '+short', '+time=3', '+tries=1')
-    ip = next(line for line in answers.splitlines() if re.fullmatch(r'[0-9.]+', line))
-    result = command('curl','-4','--fail','--silent','--show-error','--max-time','15','--interface',name,'--resolve',f'api.ipify.org:443:{ip}','https://api.ipify.org')
-    ipaddress.IPv4Address(result)
-    print('OK: VPN DNS and HTTPS with exit IP '+result, flush=True)
+    def check_navigation():
+        answers = command('dig', '@'+config['dns'], 'api.ipify.org', 'A', '+short', '+time=3', '+tries=1')
+        ip = next(line for line in answers.splitlines() if re.fullmatch(r'[0-9.]+', line))
+        result = command('curl','-4','--fail','--silent','--show-error','--max-time','15','--interface',name,'--resolve',f'api.ipify.org:443:{ip}','https://api.ipify.org')
+        ipaddress.IPv4Address(result)
+        print('OK: VPN DNS and HTTPS with exit IP '+result, flush=True)
+    check_navigation()
+    if config.get('university'):
+        def request(stage):
+            (work/stage).touch()
+            deadline = time.monotonic()+20
+            while not (work/(stage+'-done')).exists():
+                if time.monotonic()>deadline:
+                    raise RuntimeError('simulation stage timed out: '+stage)
+                time.sleep(.1)
+        request('block-udp')
+        if ping_ok() or ping_ok():
+            raise RuntimeError('UDP unexpectedly works despite simulated restriction')
+        assert Path('/run/netshield-lock/active').exists()
+        print('OK: university simulation drops UDP; gateway fails with lock retained', flush=True)
+        request('switch-wss')
+        for _ in range(10):
+            if ping_ok(): break
+        else: raise RuntimeError('WSS did not recover under simulated UDP restriction')
+        print('OK: same WireGuard peer works over HTTPS while direct UDP remains blocked', flush=True)
+        check_navigation()
     if config['recovery']:
         (work/'interrupt').touch()
         deadline=time.monotonic()+15
@@ -121,11 +147,14 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--wstunnel', type=Path)
     parser.add_argument('--udp', action='store_true')
+    parser.add_argument('--university', action='store_true', help='Baseline UDP, silently drop direct UDP, switch same peer to WSS and test recovery')
     parser.add_argument('--child', type=Path)
     args=parser.parse_args()
     if args.child:
         child_test(args.child)
         return
+    if args.university and args.udp:
+        parser.error('--university and --udp are mutually exclusive')
     if not args.udp and not args.wstunnel:
         parser.error('--wstunnel is required for HTTPS')
     identity={'username':'transport_'+uuid.uuid4().hex[:12], 'password':uuid.uuid4().hex+uuid.uuid4().hex}
@@ -143,27 +172,39 @@ def main():
             pub=command('wg','pubkey',input=key+'\n')
             template=api('/vpn/config', {'device_id':device,'public_key':pub},token)['config']
             endpoint, port=re.search(r'^Endpoint\s*=\s*([0-9.]+):(\d+)', template,re.M).groups()
-            print('Testing configured VPN endpoint '+endpoint+':'+port+(' via UDP' if args.udp else ' via WSS/443'),flush=True)
+            mode = ' (UDP baseline → UDP blocked → WSS/443)' if args.university else (' via UDP' if args.udp else ' via WSS/443')
+            print('Testing configured VPN endpoint '+endpoint+':'+port+mode,flush=True)
             address=re.search(r'^Address\s*=\s*([^,\s]+)',template,re.M)[1]
             dns=re.search(r'^DNS\s*=\s*([^,\s]+)',template,re.M)[1]
             config=template.replace('REPLACE_ME',key)
             config=re.sub(r'^Endpoint\s*=.*$', 'Endpoint = 127.0.0.1:51821', config, flags=re.M)
             config='\n'.join(line for line in config.splitlines() if not re.match(r'^(Address|DNS|MTU|Table|PostUp|PostDown|PreUp|PreDown)\s*=',line))
             (work/'wg.conf').write_text(config+'\n');os.chmod(work/'wg.conf',0o600)
-            (work/'settings.json').write_text(json.dumps(dict(endpoint=endpoint,address=address,dns=dns,recovery=not args.udp)))
+            (work/'settings.json').write_text(json.dumps(dict(endpoint=endpoint,address=address,dns=dns,recovery=not args.udp,university=args.university)))
             reserve=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);reserve.bind(('127.0.0.1',0));local_port=reserve.getsockname()[1];reserve.close()
             def start_tunnel():
-                return sp.Popen([str(args.wstunnel),'client','--tls-verify-certificate','--tls-sni-override','api.netshield.lat','-H','Host: api.netshield.lat','-P','wstunnel','--connection-retry-max-backoff','5s','-L',f'udp://127.0.0.1:{local_port}:127.0.0.1:443?timeout_sec=0',f'wss://{endpoint}:443'],stdout=log,stderr=log,env={**os.environ,'NO_COLOR':'true'})
+                return sp.Popen([str(args.wstunnel),'client','--tls-verify-certificate','--tls-sni-override','api.netshield.lat','-H','Host: api.netshield.lat','-P','wstunnel','--connection-retry-max-backoff','5s','-L',f'udp://127.0.0.1:{local_port}:127.0.0.1:443?timeout_sec=0',f'wss://{endpoint}:443'],stdout=log,stderr=log,env={**{k:v for k,v in os.environ.items() if k.lower() not in {'http_proxy','https_proxy','all_proxy'}},'NO_COLOR':'true'})
             with (work/'transport.log').open('w') as log:
-                if not args.udp:
+                if not args.udp and not args.university:
                     tunnel=start_tunnel();time.sleep(.4)
-                target=(endpoint,int(port)) if args.udp else ('127.0.0.1',local_port)
-                thread=threading.Thread(target=relay,args=(work/'parent.sock',work/'child.sock',target,stop),daemon=True);thread.start()
+                target=(endpoint,int(port)) if args.udp or args.university else ('127.0.0.1',local_port)
+                policy={'target':target,'block_udp':False,'dropped':0}
+                thread=threading.Thread(target=relay,args=(work/'parent.sock',work/'child.sock',target,stop),kwargs={'policy':policy},daemon=True);thread.start()
                 process=sp.Popen(['unshare','--user','--map-root-user','--mount','--net',sys.executable,str(Path(__file__).resolve()),'--child',tmp])
-                deadline=time.monotonic()+100
+                deadline=time.monotonic()+160
                 interrupted=False
                 while process.poll() is None:
                     if time.monotonic()>deadline: raise RuntimeError('e2e timeout')
+                    if args.university and (work/'block-udp').exists() and not (work/'block-udp-done').exists():
+                        policy['block_udp']=True
+                        (work/'block-udp-done').touch()
+                    if args.university and (work/'switch-wss').exists() and not (work/'switch-wss-done').exists():
+                        if not policy['dropped']:
+                            raise RuntimeError('no UDP packets reached the simulated filter')
+                        print('OK: simulated filter discarded '+str(policy['dropped'])+' encrypted datagrams',flush=True)
+                        tunnel=start_tunnel();time.sleep(.4)
+                        policy['target']=('127.0.0.1',local_port)
+                        (work/'switch-wss-done').touch()
                     if (work/'interrupt').exists() and not interrupted:
                         tunnel.terminate();tunnel.wait(5);tunnel=None;interrupted=True;(work/'interrupted').touch()
                     if (work/'resume').exists() and tunnel is None and not args.udp:
@@ -174,6 +215,7 @@ def main():
             if process and process.poll() is None: process.terminate();process.wait(5)
             if tunnel and tunnel.poll() is None: tunnel.terminate();tunnel.wait(5)
             stop.set()
+            if 'thread' in locals(): thread.join(2)
             api('/vpn/devices/'+device+'/revoke',{},token)
             print('Test peer revoked; namespace, temporary keys and transport removed.',flush=True)
 
