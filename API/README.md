@@ -25,7 +25,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Para conectarse a PostgreSQL, configure `NETSHIELD_DATABASE_URL` y `NETSHIELD_JWT_SECRET` como variables de entorno. Consulte `.env.example`; el archivo es una referencia y no se carga automáticamente. La conexión exige `sslmode=verify-full` y un certificado confiable mediante `sslrootcert`. Proporcione la contraseña de la base por un mecanismo seguro, como un archivo `PGPASSFILE` con permisos restrictivos. Nunca suba contraseñas, claves ni certificados privados al repositorio.
+Para conectarse a PostgreSQL, configure `NETSHIELD_DATABASE_URL` y `NETSHIELD_JWT_SECRET` como variables de entorno; no se cargan desde ningún archivo. La conexión exige `sslmode=verify-full` con el certificado CA del servidor.
 
 Después de verificar el destino y tener respaldo, aplique las migraciones de `migrations/` en orden numérico, una sola vez, incluida `004_login_attempts.sql`, y cree el primer usuario con `python -m app.create_user`. El rol de la API necesita `SELECT`, `INSERT`, `UPDATE` y `DELETE` en `login_attempt_windows`. Para iniciar el servidor localmente:
 
