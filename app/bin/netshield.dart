@@ -316,9 +316,48 @@ Future<void> _cmdConnect(ApiClient api, LinuxVpn vpn) async {
   final tcpMode = await vpn.isTcpMode().catchError((_) => false);
   if (tcpMode) {
     stdout.writeln(_dim('Modo TCP: supervisando el transporte. Pulsa Ctrl+C para desconectar.'));
-    await ProcessSignal.sigint.watch().first;
-    stdout.writeln('');
-    await _withSpinner('Desconectando la VPN', () => vpn.disconnect());
+    final stopped = Completer<void>();
+    final signal = ProcessSignal.sigint.watch().listen((_) {
+      if (!stopped.isCompleted) stopped.complete();
+    });
+    var checking = false;
+    Future<void>? pendingCheck;
+    bool? lastHealthy;
+    Future<void> check() async {
+      if (checking || stopped.isCompleted) return;
+      checking = true;
+      try {
+        if (!await vpn.isConnected()) {
+          if (!stopped.isCompleted) stopped.complete();
+          return;
+        }
+        // gatewayReachable also restarts an exited transport child. Merely
+        // waiting for Ctrl+C would leave it unsupervised after a crash.
+        final healthy = await vpn.gatewayReachable();
+        if (!stopped.isCompleted && healthy != lastHealthy) {
+          stdout.writeln(healthy == true
+              ? _ok('Túnel verificado.')
+              : _warn('El túnel no responde; el bloqueo se conserva. Reintentando.'));
+          lastHealthy = healthy;
+        }
+      } catch (_) {
+        if (!stopped.isCompleted) stdout.writeln(_warn('No se pudo comprobar la VPN.'));
+      } finally {
+        checking = false;
+      }
+    }
+    final monitor = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!checking) pendingCheck = check();
+    });
+    try {
+      await stopped.future;
+    } finally {
+      monitor.cancel();
+      await signal.cancel();
+      await pendingCheck;
+      stdout.writeln('');
+      await _withSpinner('Desconectando la VPN', () => vpn.disconnect());
+    }
     stdout.writeln(_ok('Desconectado.'));
   }
 }
