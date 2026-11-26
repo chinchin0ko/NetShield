@@ -135,6 +135,18 @@ class WindowsVpn extends LinuxVpn {
   }
 
   // -- Privileged helper (UAC prompt, waits for the elevated step). ---------
+  //
+  // Every _runElevated call is one UAC prompt. Connect and disconnect batch
+  // all of their privileged steps into a single script (see
+  // _connectAdminScript / _disconnectAdminScript), so the user is asked
+  // exactly once per connect and once per disconnect.
+
+  /// Exit codes for the combined admin scripts: the script exits with the
+  /// code of the first step that failed, so the caller knows what broke
+  /// and whether the traffic lock is already on.
+  static const _adminOk = 0;
+  static const _adminFirewallFailed = 10;
+  static const _adminTunnelFailed = 20;
 
   /// Runs [psLines] as administrator and returns the exit code. The user
   /// sees one UAC prompt per call; denying it fails the step. The elevated
@@ -273,9 +285,10 @@ class WindowsVpn extends LinuxVpn {
   Future<bool> isKillSwitchEnabled() async =>
       File('${(await _appDir()).path}\\lock\\active.json').exists();
 
-  Future<void> _enableKillswitch(String tunnel, String endpoint,
-      {bool allowSsh = false}) async {
-    final lock = await _lockFile();
+  /// Firewall rules that turn the traffic lock on. Pure: no I/O, so the
+  /// connect flow can run them inside its single combined admin script.
+  static List<String> killswitchEnableCommands(String tunnel, String endpoint,
+      {bool allowSsh = false}) {
     final commands = <String>[
       'Remove-NetFirewallRule -DisplayName "$_rulePrefix*" -ErrorAction SilentlyContinue',
       'Set-NetFirewallProfile -Profile Domain,Private,Public -DefaultOutboundAction Block',
@@ -295,21 +308,85 @@ class WindowsVpn extends LinuxVpn {
       commands.add(
           'New-NetFirewallRule -DisplayName "$_rulePrefix (SSH TCP)" -Direction Outbound -Action Allow -Protocol TCP -RemotePort 443 -RemoteAddress $infra -Profile Any | Out-Null');
     }
-    await _elevatedOrThrow(commands,
-        'No se pudo activar el bloqueo de tráfico. Revisa la autorización de administrador.');
+    return commands;
+  }
+
+  /// Firewall rules that turn the traffic lock off. Pure, like above.
+  static List<String> killswitchDisableCommands() => [
+        'Remove-NetFirewallRule -DisplayName "$_rulePrefix*" -ErrorAction SilentlyContinue',
+        'Set-NetFirewallProfile -Profile Domain,Private,Public -DefaultOutboundAction Allow',
+      ];
+
+  /// One elevated script for connect: traffic lock first (so nothing leaks
+  /// while the tunnel comes up), then the tunnel install. Exits
+  /// [_adminFirewallFailed] if the lock fails, [_adminTunnelFailed] if the
+  /// install fails, [_adminOk] when both succeed. Pure and testable.
+  static List<String> connectAdminScript(List<String> firewallCommands,
+      String wireguardExe, String configPath) => [
+        r"$ErrorActionPreference = 'Stop'",
+        'try {',
+        ...firewallCommands,
+        '} catch { exit $_adminFirewallFailed }',
+        '& "$wireguardExe" /installtunnelservice "$configPath"',
+        'if (\$LASTEXITCODE -ne 0) { exit $_adminTunnelFailed }',
+        'exit $_adminOk',
+      ];
+
+  /// One elevated script for disconnect: uninstall the tunnel service and
+  /// restore the firewall, best effort on both steps, exiting with the
+  /// first failure code ([_adminTunnelFailed] or [_adminFirewallFailed]).
+  /// Only the steps the caller asks for are included. Pure and testable.
+  static List<String> disconnectAdminScript(
+      {required bool uninstallTunnel,
+      required String wireguardExe,
+      required String tunnel,
+      required bool disableKillswitch}) {
+    final script = <String>[r'$fail = 0'];
+    if (uninstallTunnel) {
+      script.addAll([
+        'try {',
+        '& "$wireguardExe" /uninstalltunnelservice "$tunnel"',
+        'if (\$LASTEXITCODE -ne 0) { \$fail = $_adminTunnelFailed }',
+        '} catch { \$fail = $_adminTunnelFailed }',
+      ]);
+    }
+    if (disableKillswitch) {
+      script.addAll([
+        'try {',
+        ...killswitchDisableCommands(),
+        '} catch { if (\$fail -eq 0) { \$fail = $_adminFirewallFailed } }',
+      ]);
+    }
+    script.add(r'exit $fail');
+    return script;
+  }
+
+  Future<void> _writeLock(String tunnel, String endpoint,
+      {bool allowSsh = false}) async {
+    final lock = await _lockFile();
     await lock.writeAsString(
         jsonEncode(
             {'tunnel': tunnel, 'endpoint': endpoint, 'allow_ssh': allowSsh}),
         flush: true);
   }
 
-  Future<void> _disableKillswitch() async {
-    await _elevatedOrThrow([
-      'Remove-NetFirewallRule -DisplayName "$_rulePrefix*" -ErrorAction SilentlyContinue',
-      'Set-NetFirewallProfile -Profile Domain,Private,Public -DefaultOutboundAction Allow',
-    ], 'No se pudo desactivar el bloqueo de tráfico. Revisa la autorización de administrador.');
+  Future<void> _deleteLock() async {
     final lock = await _lockFile();
     if (await lock.exists()) await lock.delete();
+  }
+
+  Future<void> _enableKillswitch(String tunnel, String endpoint,
+      {bool allowSsh = false}) async {
+    await _elevatedOrThrow(
+        killswitchEnableCommands(tunnel, endpoint, allowSsh: allowSsh),
+        'No se pudo activar el bloqueo de tráfico. Revisa la autorización de administrador.');
+    await _writeLock(tunnel, endpoint, allowSsh: allowSsh);
+  }
+
+  Future<void> _disableKillswitch() async {
+    await _elevatedOrThrow(killswitchDisableCommands(),
+        'No se pudo desactivar el bloqueo de tráfico. Revisa la autorización de administrador.');
+    await _deleteLock();
   }
 
   @override
@@ -484,19 +561,27 @@ class WindowsVpn extends LinuxVpn {
     var killswitchOn = false;
     try {
       await _keepDevelopmentTunnel(config);
-      // Enable the lock first, like on Linux, so no traffic leaks
-      // while the tunnel comes up.
-      await _enableKillswitch(tunnel, endpoint,
-          allowSsh: await isSshAllowed());
+      // ONE UAC prompt: the traffic lock and the tunnel install run in a
+      // single elevated script, so Windows only asks once per connect.
+      // The lock goes first, like on Linux, so no traffic leaks while the
+      // tunnel comes up. The script exits 10 if the lock fails and 20 if
+      // the install fails; a failed install still leaves the lock on, so
+      // the lock file is written and cleanup below removes it.
+      final allowSsh = await isSshAllowed();
+      final code = await _runElevated(connectAdminScript(
+          killswitchEnableCommands(tunnel, endpoint, allowSsh: allowSsh),
+          wireguardExe,
+          configFile.path));
+      if (code == _adminFirewallFailed || (code != _adminOk && code != _adminTunnelFailed)) {
+        throw const ApiException(
+            'No se pudo activar el bloqueo de tráfico. Revisa la autorización de administrador.');
+      }
+      await _writeLock(tunnel, endpoint, allowSsh: allowSsh);
       killswitchOn = true;
-      // Run wireguard.exe directly (the script is already elevated, so no
-      // nested -Verb RunAs) and propagate its exit code: the old
-      // Start-Process call swallowed failures, so a failed install only
-      // surfaced 15 s later as "El túnel VPN no se activó."
-      await _elevatedOrThrow([
-        '& "$wireguardExe" /installtunnelservice "${configFile.path}"',
-        'exit \$LASTEXITCODE',
-      ], 'No se pudo instalar el túnel VPN. Revisa la autorización de administrador.');
+      if (code == _adminTunnelFailed) {
+        throw const ApiException(
+            'No se pudo instalar el túnel VPN. Revisa la autorización de administrador.');
+      }
       _windowsConnection = tunnel;
       await _waitForTunnel(tunnel);
       if (!await _ping('10.8.0.1')) {
@@ -522,18 +607,35 @@ class WindowsVpn extends LinuxVpn {
   Future<void> disconnect() async {
     final id = await deviceId();
     final tunnel = _windowsConnection ?? tunnelName(id);
-    if (await _serviceExists(tunnel)) {
-      final wireguardExe = await _wireguardExe();
-      await _elevatedOrThrow([
-        '& "$wireguardExe" /uninstalltunnelservice "$tunnel"',
-        'exit \$LASTEXITCODE',
-      ], 'No se pudo desconectar la VPN.');
+    // ONE UAC prompt: the tunnel uninstall and the firewall restore run in
+    // a single elevated script. The script is best effort on both steps
+    // and exits with the first failure code (20 = uninstall, 10 = firewall).
+    final needsUninstall = await _serviceExists(tunnel);
+    final lockOn = await isKillSwitchEnabled();
+    if (needsUninstall || lockOn) {
+      final code = await _runElevated(disconnectAdminScript(
+        uninstallTunnel: needsUninstall,
+        wireguardExe: needsUninstall ? await _wireguardExe() : '',
+        tunnel: tunnel,
+        disableKillswitch: lockOn,
+      ));
+      if (code == _adminTunnelFailed) {
+        // The firewall was restored even though the uninstall failed; the
+        // lock is off now, and the isConnected check below reports it.
+        await _deleteLock();
+      } else if (code != _adminOk) {
+        // The firewall restore failed: the lock stays on so the traffic
+        // block is not silently lost.
+        throw const ApiException(
+            'No se pudo desactivar el bloqueo de tráfico. Revisa la autorización de administrador.');
+      } else {
+        await _deleteLock();
+      }
     }
     if (await isConnected()) {
       throw const ApiException('No se pudo desconectar la VPN.');
     }
     await _removeManagementRoute();
-    if (await isKillSwitchEnabled()) await _disableKillswitch();
     _windowsConnection = null;
   }
 

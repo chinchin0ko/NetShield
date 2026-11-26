@@ -43,4 +43,63 @@ void main() {
     expect(usage.sentBytes, 5678);
     expect(WindowsVpn.parseTransfer('garbage\n'), null);
   });
+
+  test('killswitch enable commands block outbound and allow the tunnel', () {
+    final commands = WindowsVpn.killswitchEnableCommands(
+        'nsabcdef123456', '203.0.113.10');
+    expect(
+        commands,
+        contains(
+            'Set-NetFirewallProfile -Profile Domain,Private,Public -DefaultOutboundAction Block'));
+    expect(commands.any((c) => c.contains('InterfaceAlias "nsabcdef123456"')),
+        isTrue);
+    expect(commands.any((c) => c.contains('RemoteAddress 203.0.113.10')),
+        isTrue);
+    // SSH rules only when opted in.
+    expect(commands.any((c) => c.contains('(SSH)')), isFalse);
+    final withSsh = WindowsVpn.killswitchEnableCommands(
+        'nsabcdef123456', '203.0.113.10',
+        allowSsh: true);
+    expect(withSsh.any((c) => c.contains('(SSH)')), isTrue);
+  });
+
+  test('connect admin script is one script: firewall first, then install',
+      () {
+    final script = WindowsVpn.connectAdminScript(
+        WindowsVpn.killswitchEnableCommands('nsabcdef123456', '203.0.113.10'),
+        r'C:\Program Files\WireGuard\wireguard.exe',
+        r'C:\Users\demo\NetShield\nsabcdef123456.conf');
+    final joined = script.join('\n');
+    expect(script.first, contains('ErrorActionPreference'));
+    expect(joined, contains('exit 10')); // firewall failed
+    expect(joined, contains('/installtunnelservice'));
+    expect(joined, contains('exit 20')); // install failed
+    expect(script.last, 'exit 0');
+    // The install runs after the firewall block, never before it.
+    expect(joined.indexOf('/installtunnelservice'),
+        greaterThan(joined.indexOf('DefaultOutboundAction Block')));
+  });
+
+  test('disconnect admin script runs both steps, first failure wins', () {
+    final script = WindowsVpn.disconnectAdminScript(
+        uninstallTunnel: true,
+        wireguardExe: r'C:\Program Files\WireGuard\wireguard.exe',
+        tunnel: 'nsabcdef123456',
+        disableKillswitch: true);
+    final joined = script.join('\n');
+    expect(joined, contains('/uninstalltunnelservice'));
+    expect(joined, contains('DefaultOutboundAction Allow'));
+    expect(joined, contains(r'$fail = 20')); // uninstall failed
+    expect(joined, contains(r'$fail = 10')); // firewall failed
+    expect(script.last, r'exit $fail');
+    // Only the requested steps are included.
+    final onlyFirewall = WindowsVpn.disconnectAdminScript(
+        uninstallTunnel: false,
+        wireguardExe: '',
+        tunnel: 'nsabcdef123456',
+        disableKillswitch: true);
+    expect(onlyFirewall.join('\n'),
+        isNot(contains('/uninstalltunnelservice')));
+    expect(onlyFirewall.join('\n'), contains('DefaultOutboundAction Allow'));
+  });
 }
