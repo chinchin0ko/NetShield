@@ -26,7 +26,7 @@ class PublicLimit:
         now = self.clock()
         if len(self.windows) >= self.capacity:
             self.windows = {key: value for key, value in self.windows.items() if value[1] > now}
-        group = {'/auth/token': 'login', '/auth/register': 'registration'}.get(scope['path'], 'general')
+        group = {'/auth/token': 'login', '/auth/refresh': 'login', '/auth/register': 'registration'}.get(scope['path'], 'general')
         key = (address, group)
         if key not in self.windows and len(self.windows) >= self.capacity:
             return await JSONResponse({'detail': 'Service busy'}, status_code=503)(scope, receive, send)

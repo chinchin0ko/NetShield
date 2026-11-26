@@ -78,9 +78,9 @@ class FakeApi extends ApiClient {
   @override
   Future<void> register(String username, String password) async {}
   @override
-  Future<String> login(String username, String password) async {
+  Future<SessionTokens> login(String username, String password) async {
     if (fail) throw const ApiException('Usuario o contraseña incorrectos.');
-    return 'test-token';
+    return const SessionTokens('test-token', null);
   }
 }
 

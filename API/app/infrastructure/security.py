@@ -1,5 +1,7 @@
 """Argon2 and JWT adapters for application ports."""
+import hashlib
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -49,3 +51,12 @@ class JwtTokens:
             return user_id
         except (jwt.PyJWTError, ValueError, TypeError):
             raise AuthenticationError from None
+
+    def create_refresh_token(self) -> str:
+        # 48 random bytes, URL-safe: the raw value is shown to the client once
+        # and only its SHA-256 hash is ever stored.
+        return secrets.token_urlsafe(48)
+
+    @staticmethod
+    def hash_refresh_token(token: str) -> str:
+        return hashlib.sha256(token.encode()).hexdigest()

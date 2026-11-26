@@ -1,12 +1,13 @@
 """Connect application ports to infrastructure adapters."""
 from app.application.auth import AuthService
 from app.infrastructure.postgres import PostgresUsers
+from app.infrastructure.refresh_tokens import PostgresRefreshTokens
 from app.infrastructure.security import Argon2Passwords, JwtTokens
 from app.infrastructure.login_limiter import PostgresLoginLimiter
 
 
 def get_auth_service() -> AuthService:
-    return AuthService(PostgresUsers(), Argon2Passwords(), JwtTokens(), PostgresLoginLimiter())
+    return AuthService(PostgresUsers(), Argon2Passwords(), JwtTokens(), PostgresLoginLimiter(), PostgresRefreshTokens())
 
 
 def get_device_service():

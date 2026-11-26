@@ -81,7 +81,7 @@ def readiness(service: AuthService = Depends(get_auth_service)):
 @router.post("/auth/token")
 def login(credentials: Credentials, response: Response, service: AuthService = Depends(get_auth_service)):
     try:
-        token = service.login(credentials.username, credentials.password)
+        session = service.login(credentials.username, credentials.password)
     except LoginRateLimited as exc:
         raise HTTPException(status_code=429, detail='Too many attempts', headers={'Retry-After': str(exc.retry_after), 'Cache-Control': 'no-store'}) from None
     except AuthenticationError:
@@ -90,7 +90,33 @@ def login(credentials: Credentials, response: Response, service: AuthService = D
         raise HTTPException(status_code=503, detail='Authentication unavailable') from None
     response.headers['Cache-Control'] = 'no-store'
     response.headers['Pragma'] = 'no-cache'
-    return {"access_token": token, "token_type": "bearer", "expires_in": 1800}
+    return {"access_token": session.access_token, "refresh_token": session.refresh_token, "token_type": "bearer", "expires_in": 1800}
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(min_length=43, max_length=128)
+
+
+@router.post("/auth/refresh")
+def refresh_session(data: RefreshTokenRequest, response: Response, service: AuthService = Depends(get_auth_service)):
+    try:
+        session = service.refresh(data.refresh_token)
+    except AuthenticationError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token") from None
+    except (psycopg.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='Authentication unavailable') from None
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Pragma'] = 'no-cache'
+    return {"access_token": session.access_token, "refresh_token": session.refresh_token, "token_type": "bearer", "expires_in": 1800}
+
+
+@router.post("/auth/logout", status_code=204)
+def logout_session(data: RefreshTokenRequest, service: AuthService = Depends(get_auth_service)):
+    try:
+        service.logout(data.refresh_token)
+    except (psycopg.Error, RuntimeError):
+        raise HTTPException(status_code=503, detail='Authentication unavailable') from None
+    return Response(status_code=204)
 
 
 @router.get("/users/me")

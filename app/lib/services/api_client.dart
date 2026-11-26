@@ -28,6 +28,14 @@ class SecurityAlertFeed {
   final String monitoring;
 }
 
+class SessionTokens {
+  const SessionTokens(this.accessToken, this.refreshToken);
+  final String accessToken;
+  // Null when the server has no refresh store configured; the client then
+  // falls back to asking the user to log in again.
+  final String? refreshToken;
+}
+
 class ApiClient {
   ApiClient({String? baseUrl, DevTunnel? tunnel})
     : baseUrl = Uri.parse(baseUrl ?? const String.fromEnvironment(
@@ -38,6 +46,23 @@ class ApiClient {
 
   final Uri baseUrl;
   final DevTunnel? _tunnel;
+
+  // Refresh session: the access token lasts 30 min; the refresh token (30
+  // days, rotated on every use) renews it silently so the user is never
+  // kicked back to the login screen while the app is open, VPN on or off.
+  String? _refreshToken;
+  Future<SessionTokens>? _refreshFuture;
+  void Function(String accessToken, String? refreshToken)? onSessionRefreshed;
+
+  void setSession(String? refreshToken) {
+    _refreshToken = refreshToken;
+    _refreshFuture = null;
+  }
+
+  void clearSession() {
+    _refreshToken = null;
+    _refreshFuture = null;
+  }
 
   Future<Uri> _url(String path) async {
     try {
@@ -59,23 +84,61 @@ class ApiClient {
   Future<dynamic> _authorized(String token, String method, String path, {Map<String, dynamic>? payload}) async {
     final isLoopback = baseUrl.host == '127.0.0.1' || baseUrl.host == 'localhost' || baseUrl.host == '::1';
     if (baseUrl.scheme != 'https' && !(baseUrl.scheme == 'http' && isLoopback)) throw const ApiException('La dirección de la API debe usar HTTPS.');
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    var current = token;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+      try {
+        final request = await client.openUrl(method, await _url(path));
+        request.followRedirects = false;
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $current');
+        if (payload != null) { request.headers.contentType = ContentType.json; request.write(jsonEncode(payload)); }
+        final response = await request.close().timeout(const Duration(seconds: 25));
+        final body = await utf8.decoder.bind(response).join();
+        if (response.statusCode == 401) {
+          // The access token expired: renew it silently once and retry.
+          if (attempt == 0) {
+            final fresh = await _refreshOnce();
+            if (fresh != null) {
+              current = fresh.accessToken;
+              onSessionRefreshed?.call(fresh.accessToken, fresh.refreshToken);
+              continue;
+            }
+          }
+          throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
+        }
+        if (response.statusCode != 200 && response.statusCode != 201 && response.statusCode != 204) throw const ApiException('No se pudo administrar el dispositivo.');
+        return body.isEmpty ? null : jsonDecode(body);
+      } on SocketException {
+        throw _connectionError();
+      } on TimeoutException {
+        throw _connectionError();
+      } finally {
+        client.close(force: true);
+      }
+    }
+    throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
+  }
+
+  Future<SessionTokens?> _refreshOnce() async {
+    final refreshToken = _refreshToken;
+    if (refreshToken == null) return null;
+    // Concurrent 401s share a single refresh instead of racing each other.
+    final inFlight = _refreshFuture;
+    if (inFlight != null) {
+      try {
+        return await inFlight;
+      } catch (_) {
+        return null;
+      }
+    }
+    final future = refresh(refreshToken);
+    _refreshFuture = future;
     try {
-      final request = await client.openUrl(method, await _url(path));
-      request.followRedirects = false;
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      if (payload != null) { request.headers.contentType = ContentType.json; request.write(jsonEncode(payload)); }
-      final response = await request.close().timeout(const Duration(seconds: 25));
-      final body = await utf8.decoder.bind(response).join();
-      if (response.statusCode == 401) throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
-      if (response.statusCode != 200 && response.statusCode != 201 && response.statusCode != 204) throw const ApiException('No se pudo administrar el dispositivo.');
-      return body.isEmpty ? null : jsonDecode(body);
-    } on SocketException {
-      throw _connectionError();
-    } on TimeoutException {
-      throw _connectionError();
+      return await future;
+    } catch (_) {
+      return null;
     } finally {
-      client.close(force: true);
+      _refreshFuture = null;
     }
   }
 
@@ -157,37 +220,51 @@ class ApiClient {
     if (baseUrl.scheme != 'https' && !(baseUrl.scheme == 'http' && isLoopback)) {
       throw const ApiException('La dirección de la API debe usar HTTPS.');
     }
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
-    try {
-      final request = await client.postUrl(await _url('/vpn/config'));
-      request.followRedirects = false;
-      request.headers.contentType = ContentType.json;
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-      request.add(utf8.encode(jsonEncode({'device_id': deviceId, 'public_key': publicKey})));
-      final response = await request.close().timeout(const Duration(seconds: 25));
-      final body = await utf8.decoder.bind(response).join();
-      if (response.statusCode == 401) throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
-      if (response.statusCode == 403) throw const ApiException('Este dispositivo fue revocado. Contacta al administrador.');
-      if (response.statusCode == 409) {
-        try {
-          final error = jsonDecode(body);
-          if (error is Map && error['detail'] == 'Device limit reached') {
-            throw const ApiException('Alcanzaste el límite de dispositivos. Revoca uno o contacta al administrador.');
+    var current = token;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+      try {
+        final request = await client.postUrl(await _url('/vpn/config'));
+        request.followRedirects = false;
+        request.headers.contentType = ContentType.json;
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $current');
+        request.add(utf8.encode(jsonEncode({'device_id': deviceId, 'public_key': publicKey})));
+        final response = await request.close().timeout(const Duration(seconds: 25));
+        final body = await utf8.decoder.bind(response).join();
+        if (response.statusCode == 401) {
+          if (attempt == 0) {
+            final fresh = await _refreshOnce();
+            if (fresh != null) {
+              current = fresh.accessToken;
+              onSessionRefreshed?.call(fresh.accessToken, fresh.refreshToken);
+              continue;
+            }
           }
-        } on FormatException { /* Use the generic conflict message. */ }
-        throw const ApiException('La clave de este dispositivo ya está en uso por otra cuenta.');
+          throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
+        }
+        if (response.statusCode == 403) throw const ApiException('Este dispositivo fue revocado. Contacta al administrador.');
+        if (response.statusCode == 409) {
+          try {
+            final error = jsonDecode(body);
+            if (error is Map && error['detail'] == 'Device limit reached') {
+              throw const ApiException('Alcanzaste el límite de dispositivos. Revoca uno o contacta al administrador.');
+            }
+          } on FormatException { /* Use the generic conflict message. */ }
+          throw const ApiException('La clave de este dispositivo ya está en uso por otra cuenta.');
+        }
+        if (response.statusCode != 200) throw const ApiException('No se pudo preparar la VPN.');
+        final data = jsonDecode(body);
+        if (data is! Map || data['config'] is! String) throw const ApiException('La configuración VPN es inválida.');
+        return data['config'] as String;
+      } on SocketException {
+        throw _connectionError();
+      } on TimeoutException {
+        throw _connectionError();
+      } finally {
+        client.close(force: true);
       }
-      if (response.statusCode != 200) throw const ApiException('No se pudo preparar la VPN.');
-      final data = jsonDecode(body);
-      if (data is! Map || data['config'] is! String) throw const ApiException('La configuración VPN es inválida.');
-      return data['config'] as String;
-    } on SocketException {
-      throw _connectionError();
-    } on TimeoutException {
-      throw _connectionError();
-    } finally {
-      client.close(force: true);
     }
+    throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
   }
 
   Future<void> register(String username, String password) async {
@@ -215,7 +292,65 @@ class ApiClient {
     }
   }
 
-  Future<String> login(String username, String password) async {
+  Future<SessionTokens> refresh(String refreshToken) async {
+    final isLoopback = baseUrl.host == '127.0.0.1' || baseUrl.host == 'localhost' || baseUrl.host == '::1';
+    if (baseUrl.scheme != 'https' && !(baseUrl.scheme == 'http' && isLoopback)) {
+      throw const ApiException('La dirección de la API debe usar HTTPS.');
+    }
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client.postUrl(await _url('/auth/refresh'));
+      request.headers.contentType = ContentType.json;
+      request.add(utf8.encode(jsonEncode({'refresh_token': refreshToken})));
+      final response = await request.close().timeout(const Duration(seconds: 10));
+      final body = await utf8.decoder.bind(response).join();
+      if (response.statusCode == 401) {
+        _refreshToken = null;
+        throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
+      }
+      if (response.statusCode != 200) {
+        throw const ApiException('No se pudo renovar la sesión. Inténtalo de nuevo.');
+      }
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic> || decoded['access_token'] is! String || (decoded['access_token'] as String).isEmpty) {
+        throw const ApiException('La API respondió con datos inesperados.');
+      }
+      final tokens = SessionTokens(decoded['access_token'] as String, decoded['refresh_token'] as String?);
+      _refreshToken = tokens.refreshToken;
+      return tokens;
+    } on SocketException {
+      throw _connectionError();
+    } on TimeoutException {
+      throw _connectionError();
+    } on HttpException {
+      throw const ApiException('No se pudo completar la conexión con la API.');
+    } on FormatException {
+      throw const ApiException('La API respondió con datos inesperados.');
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> logout(String refreshToken) async {
+    // Best effort: the server revokes the refresh token. Even if the call
+    // fails, the client still clears its local session.
+    final isLoopback = baseUrl.host == '127.0.0.1' || baseUrl.host == 'localhost' || baseUrl.host == '::1';
+    if (baseUrl.scheme != 'https' && !(baseUrl.scheme == 'http' && isLoopback)) return;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final request = await client.postUrl(await _url('/auth/logout'));
+      request.headers.contentType = ContentType.json;
+      request.add(utf8.encode(jsonEncode({'refresh_token': refreshToken})));
+      final response = await request.close().timeout(const Duration(seconds: 10));
+      await response.drain<void>();
+    } catch (_) {
+      // Logout must never block signing out.
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<SessionTokens> login(String username, String password) async {
     final isLoopback = baseUrl.host == '127.0.0.1' || baseUrl.host == 'localhost' || baseUrl.host == '::1';
     if (baseUrl.scheme != 'https' && !(baseUrl.scheme == 'http' && isLoopback)) {
       throw const ApiException('La dirección de la API debe usar HTTPS.');
@@ -240,7 +375,9 @@ class ApiClient {
       if (decoded is! Map<String, dynamic> || decoded['access_token'] is! String || (decoded['access_token'] as String).isEmpty) {
         throw const ApiException('La API respondió con datos inesperados.');
       }
-      return decoded['access_token'] as String;
+      final tokens = SessionTokens(decoded['access_token'] as String, decoded['refresh_token'] as String?);
+      _refreshToken = tokens.refreshToken;
+      return tokens;
     } on SocketException {
       throw _connectionError();
     } on TimeoutException {

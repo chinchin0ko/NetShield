@@ -16,19 +16,23 @@ class AndroidVpn extends LinuxVpn {
     }
   }
 
-  Future<void> saveSession(String account, String token) => _call<void>('saveSession', {'account': account, 'token': token});
+  Future<void> saveSession(String account, String accessToken, String? refreshToken) => _call<void>('saveSession', {'account': account, 'token': accessToken, 'refreshToken': refreshToken});
   Future<void> clearSession() => _call<void>('clearSession');
-  Future<Map<String, String>?> restoredSession() async {
+  Future<Map<String, String?>?> restoredSession() async {
     final value = await _call<Map<Object?, Object?>?>('session');
     if (value == null) return null;
     try {
       final token = value['token'] as String;
+      final refreshToken = value['refreshToken'] as String?;
       final claims = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(token.split('.')[1])))) as Map;
-      if ((claims['exp'] as num) * 1000 <= DateTime.now().millisecondsSinceEpoch) {
+      if ((claims['exp'] as num) * 1000 <= DateTime.now().millisecondsSinceEpoch && refreshToken == null) {
+        // No refresh token to renew with: the session is really over.
         await clearSession();
         return null;
       }
-      return {'account': value['account'] as String, 'token': token};
+      // An expired access token with a refresh token is fine: the first API
+      // call renews it silently.
+      return {'account': value['account'] as String, 'token': token, 'refreshToken': refreshToken};
     } catch (_) {
       await clearSession();
       return null;

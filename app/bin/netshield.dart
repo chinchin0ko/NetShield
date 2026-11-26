@@ -181,11 +181,12 @@ Future<Map<String, dynamic>?> _loadSession() async {
   }
 }
 
-Future<void> _saveSession(String token, String account) async {
+Future<void> _saveSession(String token, String? refreshToken, String account) async {
   final dir = Directory(_sessionDir);
   await dir.create(recursive: true);
   await _sessionFile.writeAsString(jsonEncode({
     'token': token,
+    'refresh_token': refreshToken,
     'account': account,
     'saved_at': DateTime.now().toIso8601String(),
   }));
@@ -254,7 +255,7 @@ void _printHelp() {
   stdout.writeln('  ${_cyan('help')}                 Muestra esta ayuda.');
   stdout.writeln();
   stdout.writeln(_dim('El token se guarda en ${_sessionFile.path} (solo legible por ti).'));
-  stdout.writeln(_dim('La sesión dura 30 minutos; si caduca, vuelve a hacer login.'));
+  stdout.writeln(_dim('La sesión se renueva sola; solo caduca si pasan 30 días sin usarla.'));
   stdout.writeln(_dim('Atajo: nsv hace lo mismo que netshield.'));
 }
 
@@ -267,7 +268,13 @@ Future<({String token, String account})> _requireSession(ApiClient api) async {
   if (session == null) {
     throw const ApiException('No hay sesión. Primero ejecuta: netshield login');
   }
-  return (token: session['token'] as String, account: session['account'] as String);
+  final account = session['account'] as String;
+  api.setSession(session['refresh_token'] as String?);
+  // A silent refresh rewrites the session file so the next command starts fresh.
+  api.onSessionRefreshed = (access, refresh) {
+    unawaited(_saveSession(access, refresh, account));
+  };
+  return (token: session['token'] as String, account: account);
 }
 
 Future<void> _cmdLogin(ApiClient api) async {
@@ -276,8 +283,8 @@ Future<void> _cmdLogin(ApiClient api) async {
   if (username.isEmpty) throw const ApiException('El usuario no puede estar vacío.');
   final password = _readLine('Contraseña: ', secret: true);
   if (password.isEmpty) throw const ApiException('La contraseña no puede estar vacía.');
-  final token = await _withSpinner('Iniciando sesión', () => api.login(username, password));
-  await _saveSession(token, username);
+  final session = await _withSpinner('Iniciando sesión', () => api.login(username, password));
+  await _saveSession(session.accessToken, session.refreshToken, username);
   stdout.writeln(_ok('Sesión iniciada como ${_bold(username)}.'));
   stdout.writeln(_dim('Ya puedes conectar con: netshield connect'));
 }
@@ -293,6 +300,8 @@ Future<void> _cmdLogout(ApiClient api, LinuxVpn vpn) async {
   if (connected || blocked) {
     await _withSpinner('Desconectando la VPN', () => vpn.disconnect());
   }
+  final refreshToken = session['refresh_token'] as String?;
+  if (refreshToken != null) await api.logout(refreshToken);
   await _clearSession();
   stdout.writeln(_ok('Sesión cerrada.'));
 }

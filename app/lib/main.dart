@@ -96,7 +96,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   Future<void>? pushStarting;
   bool pushActive = false;
   Timer? monitor;
-  String? error, notice, token, signedInAs;
+  String? error, notice, token, refreshToken, signedInAs;
 
   // Desktop window close guard (channel netshield/window, Linux/Windows
   // runners): the X button only closes on the login screen or when exiting
@@ -191,16 +191,29 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
     setState(() => loading = true);
     try {
       final session = await (vpn as AndroidVpn).restoredSession();
-      if (session != null && mounted) await acceptSession(session['token']!, session['account']!);
+      if (session != null && mounted) {
+        await acceptSession(SessionTokens(session['token']!, session['refreshToken']), session['account']!);
+      }
     } catch (_) { /* A locked or invalid keystore falls back to explicit login. */ }
     finally { if (mounted) setState(() => loading = false); }
   }
 
-  Future<void> acceptSession(String result, String account) async {
+  Future<void> acceptSession(SessionTokens session, String account) async {
       final active = await vpn.isConnected();
       final blocked = await vpn.isKillSwitchEnabled();
       if (!mounted) return;
-      setState(() { token = result; signedInAs = account; vpnConnected = active; trafficBlocked = blocked; password.clear(); });
+      final result = session.accessToken;
+      widget.api.setSession(session.refreshToken);
+      // A silent refresh updates the tokens in place; on Android the stored
+      // session is rewritten too, so the next launch starts fresh.
+      widget.api.onSessionRefreshed = (access, refresh) {
+        if (!mounted) return;
+        setState(() { token = access; refreshToken = refresh; });
+        if (Platform.isAndroid && signedInAs != null) {
+          unawaited((vpn as AndroidVpn).saveSession(signedInAs!, access, refresh));
+        }
+      };
+      setState(() { token = result; refreshToken = session.refreshToken; signedInAs = account; vpnConnected = active; trafficBlocked = blocked; password.clear(); });
       _exiting = false;
       unawaited(_updateWindowCloseGuard());
       if (Platform.isAndroid) {
@@ -236,7 +249,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
     setState(() { loading = true; error = null; });
     try {
       final result = await widget.api.login(username.text.trim(), password.text);
-      if (vpn is AndroidVpn) await (vpn as AndroidVpn).saveSession(username.text.trim(), result);
+      if (vpn is AndroidVpn) await (vpn as AndroidVpn).saveSession(username.text.trim(), result.accessToken, result.refreshToken);
       await acceptSession(result, username.text.trim());
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
@@ -649,11 +662,13 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
       if (vpnConnected || trafficBlocked) await vpn.disconnect();
       await pushStarting;
       if (token != null) await push.stop(token!);
+      if (refreshToken != null) await widget.api.logout(refreshToken!);
+      widget.api.clearSession();
       if (vpn is AndroidVpn) await (vpn as AndroidVpn).clearSession();
       monitor?.cancel();
       alertsTimer?.cancel();
       alertSession++;
-      if (mounted) setState(() { unseenAlertIds.clear(); alertsInitialized = false; lastAlertId = 0; pushActive = false; pushStarting = null; vpnGeneration++; vpnPublicIp = null; token = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; usageHistory = null; historyUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertsChecking = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
+      if (mounted) setState(() { unseenAlertIds.clear(); alertsInitialized = false; lastAlertId = 0; pushActive = false; pushStarting = null; vpnGeneration++; vpnPublicIp = null; token = null; refreshToken = null; signedInAs = null; vpnConnected = false; trafficBlocked = false; page = 0; usage = null; serverUsage = null; serverUsageUnavailable = false; usageHistory = null; historyUnavailable = false; serverUsageRequestedAt = null; alerts = null; alertsError = null; alertsLoading = false; alertsChecking = false; alertMonitoring = 'not_active'; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; username.clear(); });
       // Salir is the only way out while logged in: the VPN is already
       // disconnected and the session cleared above, so quit the app.
       // On Android and in tests there is no window channel, so this is a
