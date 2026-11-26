@@ -609,7 +609,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(VpnMapCard), findsOneWidget);
     expect(find.text('Servidor VPN'), findsOneWidget);
-    expect(find.text('Querétaro, México'), findsOneWidget);
+    expect(find.text('Tuxtla Gutiérrez, Chiapas'), findsOneWidget);
     expect(find.text('Desconectado'), findsOneWidget);
     expect(find.text('En espera'), findsOneWidget);
     expect(find.byType(AnimatedAtmosphere), findsOneWidget);

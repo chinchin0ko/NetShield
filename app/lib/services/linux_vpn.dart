@@ -153,7 +153,16 @@ class LinuxVpn {
       client.connectionFactory = (uri, proxyHost, proxyPort) async {
         if (proxyHost != null) throw const SocketException('Proxy not allowed');
         final addresses = await InternetAddress.lookup(uri.host, type: InternetAddressType.IPv4);
-        return Socket.startConnect(addresses.first, uri.port, sourceAddress: local);
+        final task = await Socket.startConnect(addresses.first, uri.port, sourceAddress: local);
+        // A custom factory must do TLS itself: a plain socket sends cleartext
+        // HTTP to the HTTPS port and the server answers 400.
+        if (uri.scheme == 'https') {
+          return ConnectionTask.fromSocket(
+            task.socket.then((socket) => SecureSocket.secure(socket, host: uri.host)),
+            task.cancel,
+          );
+        }
+        return task;
       };
       final request = await client.getUrl(Uri.parse('https://api.ipify.org')).timeout(const Duration(seconds: 5));
       request.followRedirects = false;

@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
@@ -67,6 +68,8 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
   bool gatewayChecking = false;
   bool? gatewayHealthy;
   String? vpnPublicIp;
+  String? realPublicIp;
+  bool _realIpLoading = false;
   bool get tunnelReady => vpnConnected && (gatewayHealthy == true || Platform.isAndroid);
   int gatewayFailures = 0;
   bool? dnsHealthy, internetHealthy;
@@ -232,9 +235,10 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
           final active = await vpn.isConnected();
           final blocked = await vpn.isKillSwitchEnabled();
           if (mounted && !vpnLoading && (vpnConnected != active || trafficBlocked != blocked)) {
-            setState(() { if (vpnConnected != active) { vpnGeneration++; vpnPublicIp = null; gatewayHealthy = null; } vpnConnected = active; trafficBlocked = blocked; if (!active) { usage = null; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; } });
+            setState(() { if (vpnConnected != active) { vpnGeneration++; vpnPublicIp = null; realPublicIp = null; gatewayHealthy = null; } vpnConnected = active; trafficBlocked = blocked; if (!active) { usage = null; gatewayHealthy = null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; } });
           }
           if (mounted && active) await refreshGatewayHealth();
+          if (mounted && !active && realPublicIp == null) unawaited(refreshRealIp());
           if (mounted && page == 2) await refreshUsage();
         } catch (_) { /* Keep last known state if NetworkManager is unavailable. */ }
       });
@@ -325,6 +329,29 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
       if (mounted && token == current && vpnConnected && vpnGeneration == generation) setState(() { gatewayHealthy = null; gatewayFailures = 0; });
     } finally {
       gatewayChecking = false;
+    }
+  }
+
+  /// Your real public IP while disconnected, fetched straight from
+  /// api.ipify.org (plain HttpClient, whose default factory does TLS).
+  /// Only used for display; never sent through the tunnel.
+  Future<void> refreshRealIp() async {
+    if (_realIpLoading || vpnConnected) return;
+    // No real network in `flutter test`: keep the suite hermetic.
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+    _realIpLoading = true;
+    try {
+      final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
+      final request = await client.getUrl(Uri.parse('https://api.ipify.org'));
+      final response = await request.close().timeout(const Duration(seconds: 6));
+      final body = await response.transform(utf8.decoder).join().timeout(const Duration(seconds: 6));
+      client.close(force: true);
+      final ip = body.trim();
+      if (mounted && !vpnConnected) setState(() => realPublicIp = ip.isEmpty ? null : ip);
+    } catch (_) {
+      // No real IP to show (e.g. the killswitch blocks traffic while disconnected).
+    } finally {
+      _realIpLoading = false;
     }
   }
 
@@ -637,7 +664,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
       if (vpnConnected || (trafficBlocked && !Platform.isAndroid)) { await vpn.disconnect(); } else { await vpn.connect(token!, signedInAs!); }
       final active = await vpn.isConnected();
       final blocked = await vpn.isKillSwitchEnabled();
-      if (mounted) setState(() { vpnGeneration++; vpnPublicIp = null; vpnConnected = active; trafficBlocked = blocked; gatewayHealthy = vpnConnected ? true : null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; if (!vpnConnected) usage = null; });
+      if (mounted) setState(() { vpnGeneration++; vpnPublicIp = null; realPublicIp = null; vpnConnected = active; trafficBlocked = blocked; gatewayHealthy = vpnConnected ? true : null; gatewayFailures = 0; dnsHealthy = null; internetHealthy = null; dnsFailures = 0; internetFailures = 0; gatewayCooldown?.cancel(); gatewayCooldown = null; if (!vpnConnected) usage = null; });
     } on ApiException catch (e) {
       if (mounted) setState(() { error = e.message; gatewayHealthy = false; vpnPublicIp = null; });
     } catch (_) {
@@ -908,7 +935,7 @@ class _ShieldHomeState extends State<ShieldHome> with WidgetsBindingObserver {
     Center(child: Text(error ?? (vpnConnected ? (gatewayHealthy == false ? 'La puerta de enlace VPN no responde. Revisa tu red o vuelve a conectar.' : (gatewayHealthy == null && !Platform.isAndroid ? 'Comprobando la conexión con el servidor VPN.' : (dnsHealthy == false ? 'El DNS de la VPN no respondió a la prueba.' : (internetHealthy == false ? 'La prueba de Internet no respondió; algunas redes bloquean este tipo de comprobación.' : (trafficBlocked ? 'Túnel activo; bloqueo de tráfico habilitado.' : 'Túnel activo; bloqueo de tráfico no habilitado.'))))) : (trafficBlocked ? 'El bloqueo sigue activo para evitar fugas.' : 'Conéctate para activar tu VPN.')), textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF55655b), fontSize: 15, height: 1.4))),
     const SizedBox(height: 30),
     SizedBox(width: double.infinity, height: 52, child: FilledButton(onPressed: vpnLoading ? null : toggleVpn, style: FilledButton.styleFrom(backgroundColor: vpnConnected ? const Color(0xffa6433a) : forest, foregroundColor: Colors.white, disabledBackgroundColor: sage.withValues(alpha: .45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))), child: Text(vpnLoading ? 'Espera…' : (vpnConnected ? 'Desconectar' : (trafficBlocked && !Platform.isAndroid ? 'Desactivar bloqueo' : 'Conectar')), style: const TextStyle(fontWeight: FontWeight.w800)))),
-    const SizedBox(height: 16), VpnMapCard(connected: tunnelReady, tunnelActive: vpnConnected, publicIp: vpnPublicIp),
+    const SizedBox(height: 16), VpnMapCard(connected: tunnelReady, tunnelActive: vpnConnected, publicIp: vpnPublicIp, realIp: realPublicIp),
   ]);
 
   Widget tab(String title, bool active, VoidCallback onTap) => Expanded(child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(12), child: AnimatedContainer(duration: const Duration(milliseconds: 180), padding: const EdgeInsets.symmetric(vertical: 12), decoration: BoxDecoration(color: active ? Colors.white : Colors.transparent, borderRadius: BorderRadius.circular(12), boxShadow: active ? [BoxShadow(color: deep.withValues(alpha: .07), blurRadius: 8, offset: const Offset(0, 3))] : []), child: Text(title, textAlign: TextAlign.center, style: TextStyle(color: active ? deep : const Color(0xFF84927f), fontSize: 12, fontWeight: FontWeight.w800)))));

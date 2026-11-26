@@ -26,10 +26,11 @@ final _origin = _ll(-93.1, 16.75); // Tuxtla Gutierrez, Chiapas (you)
 final _dest = _ll(-100.3881, 20.5881); // Queretaro server
 
 class VpnMapCard extends StatefulWidget {
-  const VpnMapCard({super.key, required this.connected, this.tunnelActive = false, this.publicIp});
+  const VpnMapCard({super.key, required this.connected, this.tunnelActive = false, this.publicIp, this.realIp});
   final bool connected;
   final bool tunnelActive;
   final String? publicIp;
+  final String? realIp;
   @override
   State<VpnMapCard> createState() => _VpnMapCardState();
 }
@@ -97,7 +98,7 @@ class _VpnMapCardState extends State<VpnMapCard> with TickerProviderStateMixin {
     // Under test, or before the first frame, snap to the current state.
     final flyProgress = fly?.value ?? (widget.connected ? 1.0 : 0.0);
     final ringProgress = rings?.value ?? 0.0;
-    final ip = widget.connected ? widget.publicIp : null;
+    final ip = widget.connected ? widget.publicIp : widget.realIp;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -134,14 +135,14 @@ class _VpnMapCardState extends State<VpnMapCard> with TickerProviderStateMixin {
         ),
         const SizedBox(height: 12),
         Text(
-          'Querétaro, México',
+          widget.connected ? 'Querétaro, México' : 'Tuxtla Gutiérrez, Chiapas',
           style: const TextStyle(color: _mapInk, fontWeight: FontWeight.w800, fontSize: 15),
         ),
         const SizedBox(height: 3),
         Text(
           widget.connected
               ? (ip == null ? 'Túnel verificado. IP de salida todavía no verificada.' : 'IP de salida verificada: $ip · Servidor en Querétaro.')
-              : 'Ubicación del servidor. No hay una salida VPN verificada.',
+              : (ip == null ? 'Esta es tu ubicación aproximada sin la VPN.' : 'Tu IP real: $ip · Ubicación aproximada sin la VPN.'),
           style: const TextStyle(color: _mapMuted, fontSize: 13, height: 1.4),
         ),
       ]),
