@@ -1,13 +1,25 @@
-// NetShield Windows Service (netshield-service.exe).
+// NetShield Windows Service server (netshield-server.exe).
 //
 // Runs as SYSTEM and performs the privileged steps (Windows Firewall +
 // WireGuard tunnel) so the app asks for administrator approval only once
 // (when the service is installed) instead of once per connect/disconnect.
 //
+// This exe is NOT registered with the SCM directly. The native C wrapper
+// (netshield-service.exe, windows/service/netshield_service_wrapper.c)
+// is the binary the SCM runs; it launches this exe with --console as a
+// child process. The wrapper exists because this Dart exe cannot run as
+// a real service: its ServiceMain uses Pointer.fromFunction, which may
+// only be invoked on the isolate's mutator thread, but the SCM calls
+// ServiceMain on its own dispatcher thread -> abort (0xc0000409).
+// See windows-service/SERVICE_CRASH.md. The service-mode code below
+// (_runAsService / _serviceMain) is therefore superseded and must not
+// be used to register a service; it stays only as reference.
+//
 //   Install (one UAC prompt, or by the installer which is already admin):
 //     sc.exe create NetShieldService binPath= "C:\Program Files\NetShield\netshield-service.exe" start= auto obj= LocalSystem
 //     sc.exe start NetShieldService
-//
+//   (binPath points to the C wrapper, which launches netshield-server.exe
+//   --console from the same directory.)
 //   Protocol: loopback TCP 127.0.0.1:18099, one JSON object per line each
 //   way. Only the five structured commands below are accepted; the
 //   service never runs arbitrary PowerShell from the socket, and every

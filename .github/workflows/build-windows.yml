@@ -40,13 +40,28 @@ jobs:
         run: dart compile exe bin/netshield.dart -o build/windows/x64/runner/Release/netshield.exe
 
       - name: Build NetShield service
-        # El servicio (Dart puro) se compila a un .exe nativo y se deja en
-        # build\service\ para que el instalador lo incluya (ver
-        # windows/installer/netshield.iss). dart compile no crea el
+        # El servidor Dart (netshield-server.exe) se compila a un .exe
+        # nativo y se deja en build\service\ para que el instalador lo
+        # incluya (ver windows/installer/netshield.iss). Lo lanza el
+        # wrapper en C (netshield-service.exe). dart compile no crea el
         # directorio de salida solo, así que se crea antes.
         run: |
           New-Item -ItemType Directory -Force -Path build\service | Out-Null
-          dart compile exe bin/netshield_service.dart -o build\service\netshield-service.exe
+          dart compile exe bin/netshield_service.dart -o build\service\netshield-server.exe
+
+      - name: Setup MSVC
+        # El wrapper en C del servicio se compila con cl.exe; este paso
+        # pone el toolchain de Visual Studio en el PATH.
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build NetShield service wrapper
+        # El wrapper nativo en C (netshield-service.exe) es el binario
+        # que registra el SCM; lanza netshield-server.exe --console
+        # como hijo (ver windows/service/netshield_service_wrapper.c).
+        # El servicio Dart no puede correr como servicio real: su
+        # ServiceMain usa Pointer.fromFunction, que el SCM no puede
+        # invocar (crash 0xc0000409). Ver windows-service/SERVICE_CRASH.md.
+        run: cl.exe /nologo /O2 /W3 /Fe:build\service\netshield-service.exe windows\service\netshield_service_wrapper.c advapi32.lib
 
       - name: Download WireGuard installer
         # El instalador de NetShield incluye el MSI oficial de WireGuard
