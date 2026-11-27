@@ -66,7 +66,7 @@ void main() {
   test('connect admin script is one script: firewall first, then install',
       () {
     final script = WindowsVpn.connectAdminScript(
-        WindowsVpn.killswitchEnableCommands('nsabcdef123456', '203.0.113.10'),
+        'nsabcdef123456', '203.0.113.10',
         r'C:\Program Files\WireGuard\wireguard.exe',
         r'C:\Users\demo\NetShield\nsabcdef123456.conf');
     final joined = script.join('\n');
@@ -78,6 +78,10 @@ void main() {
     // The install runs after the firewall block, never before it.
     expect(joined.indexOf('/installtunnelservice'),
         greaterThan(joined.indexOf('DefaultOutboundAction Block')));
+    expect(joined.indexOf('Get-NetAdapter'),
+        greaterThan(joined.indexOf('/installtunnelservice')));
+    expect(joined.indexOf('-InterfaceAlias "nsabcdef123456"'),
+        greaterThan(joined.indexOf('Get-NetAdapter')));
   });
 
   test('disconnect admin script runs both steps, first failure wins', () {

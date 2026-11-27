@@ -474,10 +474,10 @@ class WindowsVpn extends LinuxVpn {
   /// while the tunnel comes up), then the tunnel install. Exits
   /// [_adminFirewallFailed] if the lock fails, [_adminTunnelFailed] if the
   /// install fails, [_adminOk] when both succeed. Pure and testable.
-  static List<String> connectAdminScript(List<String> firewallCommands,
-          String wireguardExe, String configPath) =>
+  static List<String> connectAdminScript(String tunnel, String endpoint,
+          String wireguardExe, String configPath, {bool allowSsh = false}) =>
       WindowsAdminCommands.connectAdminScript(
-          firewallCommands, wireguardExe, configPath);
+          tunnel, endpoint, wireguardExe, configPath, allowSsh: allowSsh);
 
   /// One elevated script for disconnect: uninstall the tunnel service and
   /// restore the firewall, best effort on both steps, exiting with the
@@ -809,9 +809,8 @@ class WindowsVpn extends LinuxVpn {
           allowSsh: allowSsh,
         ),
         () => _runElevated(connectAdminScript(
-            killswitchEnableCommands(tunnel, endpoint, allowSsh: allowSsh),
-            wireguardExe,
-            configFile.path)),
+            tunnel, endpoint, wireguardExe, configFile.path,
+            allowSsh: allowSsh)),
       );
       if (code == _adminFirewallFailed || (code != _adminOk && code != _adminTunnelFailed)) {
         throw const ApiException(

@@ -59,7 +59,7 @@ void main() {
 
     test('connect script exits 10 on firewall failure, 20 on tunnel', () {
       final script = WindowsAdminCommands.connectAdminScript(
-          ['Set-NetFirewallProfile -Profile Domain -DefaultOutboundAction Block'],
+          'ns0123456789ab', '203.0.113.10',
           r'C:\Program Files\WireGuard\wireguard.exe',
           r'C:\Users\x\AppData\Roaming\NetShield\configs\ns0123456789ab.conf');
       expect(script.join('\n'), contains('exit 10'));

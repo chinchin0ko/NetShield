@@ -292,10 +292,11 @@ Future<Map<String, dynamic>> _handleConnect(
   final endpoint = _requireIPv4(command['endpoint']);
   final allowSsh = _requireBool(command['allowSsh'], 'allowSsh');
   final code = await _runPowerShell(WindowsAdminCommands.connectAdminScript(
-    WindowsAdminCommands.killswitchEnableCommands(tunnel, endpoint,
-        allowSsh: allowSsh),
+    tunnel,
+    endpoint,
     wireguardExe,
     configPath,
+    allowSsh: allowSsh,
   ));
   return {
     'ok': code == WindowsAdminExit.ok,
@@ -459,6 +460,9 @@ Future<int> _runPowerShell(List<String> lines) async {
       '-File',
       script.path,
     ]).timeout(const Duration(seconds: 120));
+    if (result.exitCode != WindowsAdminExit.ok) {
+      stderr.writeln('PowerShell exit ${result.exitCode}: ${result.stderr}');
+    }
     return result.exitCode;
   } on TimeoutException {
     return WindowsAdminExit.firewallFailed;

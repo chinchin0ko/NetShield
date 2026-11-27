@@ -58,11 +58,11 @@ class WindowsAdminCommands {
   /// Firewall rules that turn the traffic lock on. Pure: no I/O, so the
   /// connect flow can run them inside its single combined admin script.
   static List<String> killswitchEnableCommands(String tunnel, String endpoint,
-      {bool allowSsh = false}) {
+      {bool allowSsh = false, bool includeTunnelRule = true}) {
     final commands = <String>[
       'Remove-NetFirewallRule -DisplayName "$rulePrefix*" -ErrorAction SilentlyContinue',
       'Set-NetFirewallProfile -Profile Domain,Private,Public -DefaultOutboundAction Block',
-      'New-NetFirewallRule -DisplayName "$rulePrefix (tunel)" -Direction Outbound -Action Allow -InterfaceAlias "$tunnel" -Profile Any | Out-Null',
+      if (includeTunnelRule) _tunnelRule(tunnel),
       'New-NetFirewallRule -DisplayName "$rulePrefix (servidor)" -Direction Outbound -Action Allow -Protocol UDP -RemoteAddress $endpoint -Profile Any | Out-Null',
       'New-NetFirewallRule -DisplayName "$rulePrefix (DHCP)" -Direction Outbound -Action Allow -Protocol UDP -LocalPort 68 -RemotePort 67 -Profile Any | Out-Null',
     ];
@@ -80,6 +80,9 @@ class WindowsAdminCommands {
     }
     return commands;
   }
+
+  static String _tunnelRule(String tunnel) =>
+      'New-NetFirewallRule -DisplayName "$rulePrefix (tunel)" -Direction Outbound -Action Allow -InterfaceAlias "$tunnel" -Profile Any | Out-Null';
 
   /// Firewall rules that turn the traffic lock off. Pure, like above.
   /// When [original] holds the per-profile DefaultOutboundAction captured
@@ -115,18 +118,32 @@ class WindowsAdminCommands {
   }
 
   /// One elevated script for connect: traffic lock first (so nothing leaks
-  /// while the tunnel comes up), then the tunnel install. Exits
+  /// while the tunnel comes up), then the tunnel install and its allow rule. Exits
   /// [WindowsAdminExit.firewallFailed] if the lock fails,
   /// [WindowsAdminExit.tunnelFailed] if the install fails,
   /// [WindowsAdminExit.ok] when both succeed. Pure and testable.
-  static List<String> connectAdminScript(List<String> firewallCommands,
-      String wireguardExe, String configPath) => [
+  static List<String> connectAdminScript(String tunnel, String endpoint,
+      String wireguardExe, String configPath, {bool allowSsh = false}) => [
         r"$ErrorActionPreference = 'Stop'",
         'try {',
-        ...firewallCommands,
-        '} catch { exit ${WindowsAdminExit.firewallFailed} }',
+        ...killswitchEnableCommands(tunnel, endpoint,
+            allowSsh: allowSsh, includeTunnelRule: false),
+        '} catch { Write-Error -ErrorRecord \$_ -ErrorAction Continue; exit ${WindowsAdminExit.firewallFailed} }',
         '& "$wireguardExe" /installtunnelservice "$configPath"',
         'if (\$LASTEXITCODE -ne 0) { exit ${WindowsAdminExit.tunnelFailed} }',
+        // WireGuard creates its adapter asynchronously after installation.
+        // Keep outbound traffic blocked while waiting for its interface.
+        r'$deadline = [DateTime]::UtcNow.AddSeconds(15)',
+        'while (-not (Get-NetAdapter -Name "$tunnel" -ErrorAction SilentlyContinue)) {',
+        '  if ([DateTime]::UtcNow -ge \$deadline) {',
+        '    Write-Error "WireGuard adapter $tunnel did not appear." -ErrorAction Continue',
+        '    exit ${WindowsAdminExit.tunnelFailed}',
+        '  }',
+        '  Start-Sleep -Milliseconds 250',
+        '}',
+        'try {',
+        _tunnelRule(tunnel),
+        '} catch { Write-Error -ErrorRecord \$_ -ErrorAction Continue; exit ${WindowsAdminExit.firewallFailed} }',
         'exit ${WindowsAdminExit.ok}',
       ];
 
