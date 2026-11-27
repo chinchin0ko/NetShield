@@ -1,7 +1,9 @@
 ; NetShield VPN — instalador de Windows (Inno Setup).
-; Genera un setup.exe (no un .zip) que instala la app gráfica y el CLI
-; (netshield.exe). Se compila en la CI después de `flutter build windows`
-; y de compilar el CLI a build\windows\x64\runner\Release\netshield.exe.
+; Genera un setup.exe (no un .zip) que instala la app gráfica, el CLI
+; (netshield.exe) y el servicio de Windows (netshield-service.exe).
+; Se compila en la CI después de `flutter build windows`
+; y de compilar el CLI a build\windows\x64\runner\Release\netshield.exe
+; y el servicio a build\service\netshield-service.exe.
 ; Uso local: iscc netshield.iss   (desde esta carpeta)
 
 #define AppVersion "0.1.0"
@@ -38,6 +40,10 @@ Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; Gr
 [Files]
 ; Todo el bundle de Flutter (la app) más el CLI, que la CI deja en Release\.
 Source: "..\..\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+; Servicio de Windows (netshield-service.exe), compilado por la CI a
+; build\service\ (ver .github/workflows/build-windows.yml). La app lo
+; usa para ejecutar con privilegios sin pedir UAC al conectar.
+Source: "..\..\build\service\netshield-service.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; Atajo corto nsv para el CLI.
 Source: "nsv.bat"; DestDir: "{app}"; Flags: ignoreversion
 ; Instalador MSI de WireGuard (lo descarga la CI a esta carpeta). Se copia
@@ -49,6 +55,16 @@ Source: "wireguard-amd64-1.1.1.msi"; DestDir: "{tmp}"; Flags: ignoreversion dele
 ; Instala WireGuard para Windows en silencio (sin lanzar su GUI) solo si
 ; aún no está instalado. La app lo necesita para el túnel VPN.
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\wireguard-amd64-1.1.1.msi"" /qn /norestart DO_NOT_LAUNCH=1"; Check: NeedsWireGuard; Flags: runhidden waituntilterminated; StatusMsg: "Instalando WireGuard..."
+; Crea y arranca el servicio de Windows (el instalador ya corre como
+; admin, así que no hay prompt extra). El servicio ejecuta los comandos
+; con privilegios para que la app no pida UAC al conectar.
+Filename: "{sys}\sc.exe"; Parameters: "create NetShieldService binPath= ""{app}\netshield-service.exe"" start= auto obj= LocalSystem DisplayName= ""NetShield Service"""; Flags: runhidden
+Filename: "{sys}\sc.exe"; Parameters: "start NetShieldService"; Flags: runhidden
+
+[UninstallRun]
+; Detiene y borra el servicio al desinstalar.
+Filename: "{sys}\sc.exe"; Parameters: "stop NetShieldService"; Flags: runhidden
+Filename: "{sys}\sc.exe"; Parameters: "delete NetShieldService"; Flags: runhidden
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\netshield_app.exe"
