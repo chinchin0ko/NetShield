@@ -457,7 +457,7 @@ class WindowsVpn extends LinuxVpn {
           'tunnel': tunnel,
           'endpoint': endpoint,
           'allow_ssh': allowSsh,
-          if (original case final o?) 'original': o,
+          'original': ?original,
         }),
         flush: true);
   }

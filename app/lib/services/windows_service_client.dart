@@ -71,7 +71,7 @@ class WindowsServiceClient {
       'wireguardExe': wireguardExe,
       'tunnel': tunnel,
       'disableKillswitch': disableKillswitch,
-      if (original case final o?) 'original': o,
+      'original': ?original,
     }, timeout: timeout);
     return _exitCode(result);
   }
@@ -89,10 +89,10 @@ class WindowsServiceClient {
     final result = await _send({
       'cmd': 'killswitch',
       'enable': enable,
-      if (tunnel case final t?) 'tunnel': t,
-      if (endpoint case final e?) 'endpoint': e,
+      'tunnel': ?tunnel,
+      'endpoint': ?endpoint,
       'allowSsh': allowSsh,
-      if (original case final o?) 'original': o,
+      'original': ?original,
     }, timeout: timeout);
     return _exitCode(result);
   }
@@ -109,7 +109,7 @@ class WindowsServiceClient {
       'cmd': 'route',
       'add': add,
       'endpoint': endpoint,
-      if (gateway case final g?) 'gateway': g,
+      'gateway': ?gateway,
     }, timeout: timeout);
     return _exitCode(result);
   }
