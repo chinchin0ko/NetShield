@@ -116,7 +116,8 @@ class WindowsVpn extends LinuxVpn {
     const programFiles =
         r'C:\Program Files\WireGuard\wireguard.exe';
     if (await File(programFiles).exists()) return programFiles;
-    final found = await Process.run('where', ['wireguard.exe']);
+    final found = await _runWireGuardCommand('where.exe', ['wireguard.exe'],
+        failure: 'No se pudo localizar WireGuard para Windows.');
     if (found.exitCode == 0) {
       final first = found.stdout.toString().split('\n').first.trim();
       if (first.isNotEmpty) return first;
@@ -129,7 +130,8 @@ class WindowsVpn extends LinuxVpn {
     final dir = File(wireguardExe).parent.path;
     final bundled = File('$dir\\wg.exe');
     if (await bundled.exists()) return bundled.path;
-    final found = await Process.run('where', ['wg.exe']);
+    final found = await _runWireGuardCommand('where.exe', ['wg.exe'],
+        failure: 'No se pudo localizar wg.exe.');
     if (found.exitCode == 0) {
       final first = found.stdout.toString().split('\n').first.trim();
       if (first.isNotEmpty) return first;
@@ -260,6 +262,52 @@ class WindowsVpn extends LinuxVpn {
 
   // -- Identity (per-account keys, same scheme as Linux). -------------------
 
+  static const _wireguardTimeout = Duration(seconds: 10);
+
+  Future<ProcessResult> _runWireGuardCommand(
+    String executable,
+    List<String> arguments, {
+    String? input,
+    required String failure,
+  }) async {
+    var timedOut = false;
+    Process? child;
+
+    Future<ProcessResult> run() async {
+      final process = await Process.start(executable, arguments);
+      child = process;
+      if (timedOut) process.kill();
+
+      // Drain both pipes while writing stdin so a child waiting on either
+      // pipe cannot prevent the other from being read.
+      final output = systemEncoding.decoder.bind(process.stdout).join();
+      final errors = systemEncoding.decoder.bind(process.stderr).join();
+      if (!timedOut && input != null) process.stdin.writeln(input);
+      await Future.wait<void>([
+        output.then<void>((_) {}),
+        errors.then<void>((_) {}),
+        process.exitCode.then<void>((_) {}),
+        process.stdin.close().then<void>((_) {}),
+      ], eagerError: true);
+      return ProcessResult(
+          process.pid, await process.exitCode, await output, await errors);
+    }
+
+    try {
+      return await run().timeout(_wireguardTimeout);
+    } on TimeoutException {
+      timedOut = true;
+      child?.kill();
+      throw ApiException('$failure WireGuard tardó demasiado.');
+    } on ProcessException {
+      child?.kill();
+      throw ApiException(failure);
+    } on IOException {
+      child?.kill();
+      throw ApiException(failure);
+    }
+  }
+
   @override
   Future<String> deviceId() async {
     final dir = await _appDir();
@@ -298,9 +346,11 @@ class WindowsVpn extends LinuxVpn {
       throw const ApiException('La clave local de WireGuard es inválida.');
     }
     final wg = await _wgExe(await _wireguardExe());
-    final result = await Process.run(wg, ['genkey']);
+    const failure = 'No se pudo crear la clave local de WireGuard.';
+    final result =
+        await _runWireGuardCommand(wg, ['genkey'], failure: failure);
     if (result.exitCode != 0) {
-      throw const ApiException('No se pudo crear la clave local de WireGuard.');
+      throw const ApiException(failure);
     }
     final key = result.stdout.toString().trim();
     if (base64.decode(key).length != 32) {
@@ -312,15 +362,13 @@ class WindowsVpn extends LinuxVpn {
 
   Future<String> _publicKey(String privateKey) async {
     final wg = await _wgExe(await _wireguardExe());
-    final process = await Process.start(wg, ['pubkey']);
-    process.stdin.writeln(privateKey);
-    await process.stdin.close();
-    final stdoutText = await utf8.decoder.bind(process.stdout).join();
-    final stderrText = await utf8.decoder.bind(process.stderr).join();
-    if (await process.exitCode != 0 || stderrText.isNotEmpty) {
-      throw const ApiException('No se pudo derivar la clave pública.');
+    const failure = 'No se pudo derivar la clave pública.';
+    final result = await _runWireGuardCommand(wg, ['pubkey'],
+        input: privateKey, failure: failure);
+    if (result.exitCode != 0 || (result.stderr as String).isNotEmpty) {
+      throw const ApiException(failure);
     }
-    final key = stdoutText.trim();
+    final key = (result.stdout as String).trim();
     if (base64.decode(key).length != 32) {
       throw const ApiException('La clave pública es inválida.');
     }

@@ -229,9 +229,15 @@ class ApiClient {
         request.headers.contentType = ContentType.json;
         request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $current');
         request.add(utf8.encode(jsonEncode({'device_id': deviceId, 'public_key': publicKey})));
-        final response = await request.close().timeout(const Duration(seconds: 25));
-        final body = await utf8.decoder.bind(response).join();
-        if (response.statusCode == 401) {
+        Future<(int, String)> readResponse() async {
+          final response = await request.close();
+          final body = await utf8.decoder.bind(response).join();
+          return (response.statusCode, body);
+        }
+
+        final (statusCode, body) =
+            await readResponse().timeout(const Duration(seconds: 25));
+        if (statusCode == 401) {
           if (attempt == 0) {
             final fresh = await _refreshOnce();
             if (fresh != null) {
@@ -242,8 +248,8 @@ class ApiClient {
           }
           throw const ApiException('La sesión venció. Vuelve a iniciar sesión.');
         }
-        if (response.statusCode == 403) throw const ApiException('Este dispositivo fue revocado. Contacta al administrador.');
-        if (response.statusCode == 409) {
+        if (statusCode == 403) throw const ApiException('Este dispositivo fue revocado. Contacta al administrador.');
+        if (statusCode == 409) {
           try {
             final error = jsonDecode(body);
             if (error is Map && error['detail'] == 'Device limit reached') {
@@ -252,7 +258,7 @@ class ApiClient {
           } on FormatException { /* Use the generic conflict message. */ }
           throw const ApiException('La clave de este dispositivo ya está en uso por otra cuenta.');
         }
-        if (response.statusCode != 200) throw const ApiException('No se pudo preparar la VPN.');
+        if (statusCode != 200) throw const ApiException('No se pudo preparar la VPN.');
         final data = jsonDecode(body);
         if (data is! Map || data['config'] is! String) throw const ApiException('La configuración VPN es inválida.');
         return data['config'] as String;
