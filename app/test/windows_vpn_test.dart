@@ -73,6 +73,8 @@ void main() {
     expect(script.first, contains('ErrorActionPreference'));
     expect(joined, contains('exit 10')); // firewall failed
     expect(joined, contains('/installtunnelservice'));
+    expect(joined, contains('-NoNewWindow -Wait -PassThru'));
+    expect(joined, contains(r'$wireGuard.ExitCode'));
     expect(joined, contains('exit 20')); // install failed
     expect(script.last, 'exit 0');
     // The install runs after the firewall block, never before it.

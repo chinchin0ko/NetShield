@@ -84,6 +84,15 @@ class WindowsAdminCommands {
   static String _tunnelRule(String tunnel) =>
       'New-NetFirewallRule -DisplayName "$rulePrefix (tunel)" -Direction Outbound -Action Allow -InterfaceAlias "$tunnel" -Profile Any | Out-Null';
 
+  static String _psLiteral(String value) => "'${value.replaceAll("'", "''")}'";
+
+  // Windows PowerShell can return before a GUI-subsystem executable exits.
+  // Wait for WireGuard explicitly and read the exit code from that process.
+  static String _runWireGuard(String exe, String operation, String argument) =>
+      '\$wireGuard = Start-Process -FilePath ${_psLiteral(exe)} '
+      '-ArgumentList ${_psLiteral(operation)},${_psLiteral('"$argument"')} '
+      '-NoNewWindow -Wait -PassThru -ErrorAction Stop';
+
   /// Firewall rules that turn the traffic lock off. Pure, like above.
   /// When [original] holds the per-profile DefaultOutboundAction captured
   /// before the lock went on, each profile goes back to its own value
@@ -129,8 +138,10 @@ class WindowsAdminCommands {
         ...killswitchEnableCommands(tunnel, endpoint,
             allowSsh: allowSsh, includeTunnelRule: false),
         '} catch { Write-Error -ErrorRecord \$_ -ErrorAction Continue; exit ${WindowsAdminExit.firewallFailed} }',
-        '& "$wireguardExe" /installtunnelservice "$configPath"',
-        'if (\$LASTEXITCODE -ne 0) { exit ${WindowsAdminExit.tunnelFailed} }',
+        'try {',
+        _runWireGuard(wireguardExe, '/installtunnelservice', configPath),
+        r'if ($wireGuard.ExitCode -ne 0) { throw "WireGuard install exit $($wireGuard.ExitCode)." }',
+        '} catch { Write-Error -ErrorRecord \$_ -ErrorAction Continue; exit ${WindowsAdminExit.tunnelFailed} }',
         // WireGuard creates its adapter asynchronously after installation.
         // Keep outbound traffic blocked while waiting for its interface.
         r'$deadline = [DateTime]::UtcNow.AddSeconds(15)',
@@ -165,8 +176,8 @@ class WindowsAdminCommands {
     if (uninstallTunnel) {
       script.addAll([
         'try {',
-        '& "$wireguardExe" /uninstalltunnelservice "$tunnel"',
-        'if (\$LASTEXITCODE -ne 0) { \$fail = ${WindowsAdminExit.tunnelFailed} }',
+        _runWireGuard(wireguardExe, '/uninstalltunnelservice', tunnel),
+        r'if ($wireGuard.ExitCode -ne 0) { throw "WireGuard uninstall exit $($wireGuard.ExitCode)." }',
         '} catch { \$fail = ${WindowsAdminExit.tunnelFailed} }',
       ]);
     }
